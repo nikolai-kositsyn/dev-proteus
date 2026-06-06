@@ -1,3 +1,10 @@
+[![CI](https://github.com/nikolai-kositsyn/dev-proteus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nikolai-kositsyn/dev-proteus/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/nikolai-kositsyn/dev-proteus/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/nikolai-kositsyn/dev-proteus/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Python](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20x86__64%20%7C%20arm%20%7C%20aarch64-blue)](https://www.linux.org/)
+
+
 # dev-proteus - Universal Linux Peripheral Emulator
 
 **dev-proteus** is a lightweight framework for emulating Linux peripheral devices using `LD_PRELOAD` technique. No kernel modules, no root privileges required.
