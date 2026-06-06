@@ -1,0 +1,62 @@
+{
+  "buses": [
+    {
+      "type": "i2c",
+      "bus_id": 1,
+      "devices": [
+        {
+          "address": "0x51",
+          "class": "i2c-echo",
+          "name": "Echo Device"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 2,
+      "devices": [
+        {
+          "address": "0x52",
+          "class": "i2c-eeprom",
+          "name": "24LC256"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 3,
+      "devices": [
+        {
+          "address": "0x53",
+          "class": "i2c-smbus",
+          "name": "SMBus Device"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 4,
+      "devices": [
+        {
+          "address": "0x54",
+          "class": "i2c-custom-flow",
+          "name": "Custom Flow Device",
+          "config": {
+            "flow": [
+              {
+                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
+                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
+                "delay": 10
+              },
+              {
+                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
+                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
+                "delay": 100
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

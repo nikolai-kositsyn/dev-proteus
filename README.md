@@ -1,1 +1,140 @@
-# dev-proteus
+# dev-proteus - Universal Linux Peripheral Emulator
+
+**dev-proteus** is a lightweight framework for emulating Linux peripheral devices using `LD_PRELOAD` technique. No kernel modules, no root privileges required.
+
+> **⚠️ Current Status**: I2C (including SMBus) is fully supported. SPI, UART, and GPIO support are planned for future releases.
+
+## Features
+
+- 🔌 **I2C/SMBus emulation** (fully working)
+- 🔧 **LD_PRELOAD-based hooking** - intercepts system calls transparently
+- 📝 **JSON configuration** - simple device and transaction definitions
+- 🎯 **Transparent** - applications don't know they're talking to emulated devices
+- 🐳 **Container-ready** - works perfectly in Docker environments
+- 🚀 **No root required** for Python part (C hooks may need sudo for device access)
+
+## Quick Start
+
+### Build the hook library and test clients
+```bash
+chmod +x ./scripts/*.sh
+./scripts/build_hooks.sh
+./scripts/build_clients.sh
+```
+This creates libproteus_hook.so and test clients in output/ directory relative to project root
+
+### Terminal 1: Start emulator with debug logging on test configuration
+```bash
+python3 src/dev_proteus/cli.py --log-level d -c configs/test_config.json
+```
+
+### Terminal 2 (Option 1): Run any client with LD_PRELOAD explicitly
+```bash
+cd ./output
+
+LD_PRELOAD=./libproteus_hook.so ./i2c_client
+LD_PRELOAD=./libproteus_hook.so ./i2c_eeprom_client
+LD_PRELOAD=./libproteus_hook.so ./i2c_smbus_client
+```
+
+### Terminal 2 (Option 2): Run all test clients
+```bash
+./scripts/run_tests.sh
+```
+
+## Configuration Example
+```json
+{
+  "buses": [
+    {
+      "type": "i2c",
+      "bus_id": 1,
+      "devices": [
+        {
+          "address": "0x51",
+          "class": "i2c-echo",
+          "name": "Echo Device"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 2,
+      "devices": [
+        {
+          "address": "0x52",
+          "class": "i2c-eeprom",
+          "name": "24LC256"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 3,
+      "devices": [
+        {
+          "address": "0x53",
+          "class": "i2c-smbus",
+          "name": "SMBus Device"
+        }
+      ]
+    },
+    {
+      "type": "i2c",
+      "bus_id": 4,
+      "devices": [
+        {
+          "address": "0x54",
+          "class": "i2c-custom-flow",
+          "name": "Custom Flow Device",
+          "config": {
+            "flow": [
+              {
+                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
+                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
+                "delay": 10
+              },
+              {
+                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
+                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
+                "delay": 100
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Hook Library and Test Clients Build Options
+### Build with defaults (127.0.0.1:4242, I2C only)
+```bash
+./scripts/build_all.sh
+```
+
+### Build with custom host and port
+```bash
+PROTEUS_HOST=192.168.0.80 PROTEUS_PORT=9000 ./scripts/build_all.sh
+```
+
+### Enable SPI and UART hooks
+```bash
+PROTEUS_ENABLE_SPI=1 PROTEUS_ENABLE_UART=1 ./scripts/build_all.sh
+```
+
+### Build for ARM64
+```bash
+CROSS_COMPILE=aarch64-linux-gnu- ./scripts/build_all.sh
+```
+
+### Disable verbose logging
+```bash
+PROTEUS_VERBOSE=0 ./scripts/build_all.sh
+```
+
+### Combine multiple options
+```bash
+PROTEUS_HOST=10.0.0.1 PROTEUS_ENABLE_I2C=1 PROTEUS_VERBOSE=1 ./scripts/build_all.sh
+```

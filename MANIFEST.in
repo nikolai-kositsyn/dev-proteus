@@ -1,0 +1,17 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+
+recursive-include configs *.json
+
+recursive-include hooks *.c
+recursive-include hooks *.h
+recursive-include hooks Makefile
+
+recursive-include scripts *.sh
+
+prune venv
+prune .vscode
+prune __pycache__
+global-exclude *.pyc
