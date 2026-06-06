@@ -63,7 +63,8 @@ jobs:
     - name: Start emulator (only for native)
       if: matrix.cross_compile_prefix == ''
       run: |
-        python3 src/dev_proteus/cli.py -c configs/test_config.json --log-level d
+        python3 src/dev_proteus/cli.py -c configs/test_config.json --log-level d &
+        sleep 3
       env:
         PYTHONUNBUFFERED: 1
     
