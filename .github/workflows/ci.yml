@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:        
+        include:
+          - os: ubuntu-24.04
+            target_arch: x86_64
+            cross_compile_prefix: ""
+          - os: ubuntu-24.04-arm
+            target_arch: aarch64
+            cross_compile_prefix: ""
+          - os: ubuntu-24.04
+            target_arch: armv7
+            cross_compile_prefix: arm-linux-gnueabihf-
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install cross-compilation tools (ARMv7)
+      if: matrix.target_arch == 'armv7'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+    
+    - name: Install system dependencies (ARM64 native)
+      if: matrix.target_arch == 'aarch64'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .
+    
+    - name: Install Linux headers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y linux-libc-dev
+    
+    - name: Build C/C++ components
+      run: |
+        chmod +x ./scripts/*.sh
+        CROSS_COMPILE=${{ matrix.cross_compile_prefix }} ./scripts/build_all.sh        
+    
+    - name: Start emulator (only for native)
+      if: matrix.cross_compile_prefix == ''
+      run: |
+        python3 src/dev_proteus/cli.py -c configs/test_config.json --log-level d &
+        sleep 3
+      env:
+        PYTHONUNBUFFERED: 1
+    
+    - name: Run tests (only for native)
+      if: matrix.cross_compile_prefix == ''
+      run: ./scripts/run_tests.sh
