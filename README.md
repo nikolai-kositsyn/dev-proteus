@@ -9,7 +9,7 @@
 
 **dev-proteus** is a lightweight framework for emulating Linux peripheral devices using `LD_PRELOAD` technique. No kernel modules, no root privileges required.
 
-> **⚠️ Current Status**: I2C (including SMBus) is fully supported. SPI, UART, and GPIO support are planned for future releases.
+> **⚠️ Status**: I2C (including SMBus) is fully supported. SPI, UART, and GPIO support are planned for future releases.
 
 ## Features
 
@@ -30,21 +30,22 @@ chmod +x ./scripts/*.sh
 ```
 This creates libproteus_hook.so and test clients in output/ directory relative to project root
 
-### Terminal 1: Start emulator with debug logging on test configuration
+### Terminal A: Start emulator with debug logging on test configuration
 ```bash
 python3 src/dev_proteus/cli.py --log-level d -c configs/test_config.json
 ```
 
-### Terminal 2 (Option 1): Run any client with LD_PRELOAD explicitly
+### Terminal B (Option 1): Run any client with LD_PRELOAD explicitly
 ```bash
 cd ./output
 
-LD_PRELOAD=./libproteus_hook.so ./i2c_client
-LD_PRELOAD=./libproteus_hook.so ./i2c_eeprom_client
-LD_PRELOAD=./libproteus_hook.so ./i2c_smbus_client
+LD_PRELOAD=./libproteus_hook.so ./i2c_client_test
+LD_PRELOAD=./libproteus_hook.so ./i2c_eeprom_client_test
+LD_PRELOAD=./libproteus_hook.so ./i2c_smbus_client_test
+LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 ```
 
-### Terminal 2 (Option 2): Run all test clients
+### Terminal B (Option 2): Run all test clients
 ```bash
 ./scripts/run_tests.sh
 ```
@@ -141,7 +142,14 @@ CROSS_COMPILE=aarch64-linux-gnu- ./scripts/build_all.sh
 PROTEUS_VERBOSE=0 ./scripts/build_all.sh
 ```
 
-### Combine multiple options
+### Debug build with ASan
+
+**AddressSanitizer (ASan)** is integrated for detecting memory leaks, buffer overflows, and use-after-free errors.
+
 ```bash
-PROTEUS_HOST=10.0.0.1 PROTEUS_ENABLE_I2C=1 PROTEUS_VERBOSE=1 ./scripts/build_all.sh
+# Build with ASan
+PROTEUS_BUILD_TYPE=debug ./scripts/build_all.sh
+
+# Run tests with ASan
+PROTEUS_BUILD_TYPE=debug ./scripts/run_tests.sh
 ```

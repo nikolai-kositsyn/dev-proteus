@@ -7,11 +7,11 @@
 #ifndef PROTEUS_CONFIG_H
 #define PROTEUS_CONFIG_H
 
-//=============================================================================
-// Build configuration
-//=============================================================================
+ //=============================================================================
+ // Build configuration
+ //=============================================================================
 
-// Emulator connection settings
+ // Emulator connection settings
 #define PROTEUS_HOST    "127.0.0.1"
 #define PROTEUS_PORT    (4242)
 
@@ -24,5 +24,10 @@
 // Debug settings
 #define PROTEUS_VERBOSE         (1)
 #define PROTEUS_LOG_FILE        "/tmp/dev-proteus.log"
+
+
+// Release build specific
+#define NDEBUG 1  // Disable assert
+
 
 #endif // PROTEUS_CONFIG_H

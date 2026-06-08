@@ -70,6 +70,8 @@ class EmulatorServer:
                 device_address = device_item.get('address') or device_item.get('cs') or device_item.get('pin')
                 device_class = device_item.get('class')
                 device_name = device_item.get('name')
+                if not device_name:
+                    device_name = f"{device_class}_{device_address}"
                 device_config = device_item.get("config")
 
                 try:

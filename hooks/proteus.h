@@ -12,9 +12,12 @@
  // Protocol constants
  //=============================================================================
 
-#define PROTEUS_MAGIC               (0x50524F54)  // "PROT"
-#define PROTEUS_MAX_BUFFER          (4096)
-#define PROTEUS_SOCKET_TIMEOUT_MS   (500)
+#define PROTEUS_MAGIC       (0x50524F54)  // "PROT"
+#define PROTEUS_MAX_BUFFER  (4096)
+
+#define PROTEUS_TIMEOUT_MS	(500)
+#define PROTEUS_RETRY_COUNT	(3)
+
 
 //=============================================================================
 // Message types
@@ -120,9 +123,9 @@ void proteus_destroy();
 uint32_t proteus_next_sequence();
 
 int proteus_connect();
-int proteus_send_transaction(uint32_t msg_type, uint32_t sequence,
-	const uint8_t* payload, uint32_t payload_len);
-int proteus_recv_response(uint8_t* read_data, uint32_t* read_len);
-void proteus_disconnect();
+void proteus_disconnect(int clientSock);
+int proteus_send_transaction(int clientSock, uint32_t msgType, uint32_t sequence,
+	const uint8_t* payload, uint32_t payloadLen);
+int proteus_recv_response(int clientSock, uint8_t* respPayload, const uint32_t expectedLen);
 
 #endif // PROTEUS_PROTEUS_H

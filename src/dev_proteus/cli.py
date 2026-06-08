@@ -80,9 +80,7 @@ def main():
             logger.error(f"Server error: {e}")
             shutdown_event.set()
 
-    thread = threading.Thread(target=server_runner,
-                              name=f"{APP_NAME}-server",
-                              daemon=True)
+    thread = threading.Thread(target=server_runner, name=APP_NAME, daemon=True)
     thread.start()
 
     shutdown_event.wait()

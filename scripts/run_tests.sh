@@ -3,6 +3,23 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="$PROJECT_ROOT/output"
 
+# Build type: release or debug
+PROTEUS_BUILD_TYPE="${PROTEUS_BUILD_TYPE:-release}"
+
+if [ "$PROTEUS_BUILD_TYPE" = "debug" ]; then
+    ASAN_PATH=$(gcc -print-file-name=libasan.so)
+    if [ ! -f "$ASAN_PATH" ]; then
+        echo "Warning: libasan.so not found at $ASAN_PATH"
+        echo "Make sure AddressSanitizer is installed:"
+        echo "  sudo apt-get install libasan"
+        LD_PRELOAD_VALUE="./libproteus_hook.so"
+    else
+        LD_PRELOAD_VALUE="$ASAN_PATH ./libproteus_hook.so"
+    fi
+else
+    LD_PRELOAD_VALUE="./libproteus_hook.so"
+fi
+
 cd "$OUTPUT_DIR"
 
 test_results=()
@@ -23,9 +40,9 @@ run_test() {
         test_results+=(1)
         test_names+=("$test_name")
         return 1
-    fi
-    
-    LD_PRELOAD=./libproteus_hook.so "./$test_binary" "$@"
+    fi    
+
+    LD_PRELOAD="$LD_PRELOAD_VALUE" "./$test_binary" "$@"
     local result=$?
     
     test_results+=($result)
@@ -41,9 +58,10 @@ run_test() {
     return $result
 }
 
-run_test "i2c_client" "i2c_client" "/dev/i2c-1" "0x51"
-run_test "i2c_eeprom_client" "i2c_eeprom_client" "/dev/i2c-2" "0x52"
-run_test "i2c_smbus_client" "i2c_smbus_client" "/dev/i2c-3" "0x53"
+run_test "i2c_client_test" "i2c_client_test" "/dev/i2c-1" "0x51"
+run_test "i2c_eeprom_client_test" "i2c_eeprom_client_test" "/dev/i2c-2" "0x52"
+run_test "i2c_smbus_client_test" "i2c_smbus_client_test" "/dev/i2c-3" "0x53"
+run_test "i2c_multi_client_test" "i2c_multi_client_test"
 
 
 GREEN='\033[0;32m'

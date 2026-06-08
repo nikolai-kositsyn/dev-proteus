@@ -1,9 +1,14 @@
+#!/bin/bash
+
 # ========== Default configuration ==========
+# Build type: release or debug
+PROTEUS_BUILD_TYPE="${PROTEUS_BUILD_TYPE:-release}"
+
 # Emulator connection settings
 PROTEUS_HOST="${PROTEUS_HOST:-127.0.0.1}"
 PROTEUS_PORT="${PROTEUS_PORT:-4242}"
 
-# Which hooks to enable (1 = enabled, 0 = disabled)
+# Which hooks to enable
 PROTEUS_ENABLE_I2C="${PROTEUS_ENABLE_I2C:-1}"
 PROTEUS_ENABLE_SPI="${PROTEUS_ENABLE_SPI:-0}"
 PROTEUS_ENABLE_UART="${PROTEUS_ENABLE_UART:-0}"
@@ -13,7 +18,7 @@ PROTEUS_ENABLE_GPIO="${PROTEUS_ENABLE_GPIO:-0}"
 PROTEUS_VERBOSE="${PROTEUS_VERBOSE:-1}"
 PROTEUS_LOG_FILE="${PROTEUS_LOG_FILE:-/tmp/dev-proteus.log}"
 
-# Cross-compilation prefix (empty by default)
+# Cross-compilation prefix
 CROSS_COMPILE="${CROSS_COMPILE:-}"
 
 # ========== Generate config.h ==========
@@ -21,6 +26,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_FILE="$PROJECT_ROOT/hooks/config.h"
 
 echo "Generating $CONFIG_FILE with current settings..."
+echo "Build type: $PROTEUS_BUILD_TYPE"
+
 cat > "$CONFIG_FILE" << EOF
 /**
  * dev-proteus configuration
@@ -49,6 +56,28 @@ cat > "$CONFIG_FILE" << EOF
 #define PROTEUS_VERBOSE         ($PROTEUS_VERBOSE)
 #define PROTEUS_LOG_FILE        "$PROTEUS_LOG_FILE"
 
+EOF
+
+# Add assert define for debug build
+if [ "$PROTEUS_BUILD_TYPE" = "debug" ]; then
+    cat >> "$CONFIG_FILE" << EOF
+
+// Debug build specific
+#define PROTEUS_DEBUG 1
+#undef NDEBUG  // Enable assert
+
+EOF
+else
+    cat >> "$CONFIG_FILE" << EOF
+
+// Release build specific
+#define NDEBUG 1  // Disable assert
+
+EOF
+fi
+
+cat >> "$CONFIG_FILE" << EOF
+
 #endif // PROTEUS_CONFIG_H
 EOF
 
@@ -60,7 +89,6 @@ echo "  PROTEUS_ENABLE_SPI=$PROTEUS_ENABLE_SPI"
 echo "  PROTEUS_ENABLE_UART=$PROTEUS_ENABLE_UART"
 echo "  PROTEUS_ENABLE_GPIO=$PROTEUS_ENABLE_GPIO"
 echo "  PROTEUS_VERBOSE=$PROTEUS_VERBOSE"
-echo "  PROTEUS_LOG_FILE=$PROTEUS_LOG_FILE"
 echo ""
 
 # ========== Build the library ==========
@@ -69,13 +97,15 @@ OUTPUT_DIR="$PROJECT_ROOT/output"
 
 cd "$HOOKS_DIR" || exit 1
 
-# Build with cross-compilation if specified
+# Build with specified type
 if [ -n "$CROSS_COMPILE" ]; then
     echo "Building with cross-compilation: $CROSS_COMPILE"
+    echo "Build type: $PROTEUS_BUILD_TYPE"
     make clean
-    make CROSS_COMPILE="$CROSS_COMPILE"
+    make BUILD_TYPE="$PROTEUS_BUILD_TYPE" CROSS_COMPILE="$CROSS_COMPILE"
 else
-    make clean && make
+    make clean
+    make "$PROTEUS_BUILD_TYPE"
 fi
 
 # Check build result
@@ -90,3 +120,9 @@ cp "$HOOKS_DIR/libproteus_hook.so" "$OUTPUT_DIR/"
 
 echo "✅ Build successful!"
 echo "Library copied to: $OUTPUT_DIR/libproteus_hook.so"
+echo "Build type: $PROTEUS_BUILD_TYPE"
+
+if [ "$PROTEUS_BUILD_TYPE" = "debug" ]; then
+    echo "ℹ️  Debug build with AddressSanitizer. Run with:"
+    echo "   LD_PRELOAD=\"/usr/lib/gcc/x86_64-linux-gnu/13/libasan.so ./output/libproteus_hook.so\" ./your_test"
+fi

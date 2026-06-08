@@ -32,6 +32,13 @@ typedef struct VirtualDeviceS
 	char name[FILENAME_MAX];
 	uint32_t id;
 
+	int clientSock;
+
+	int (*impl_close)(struct VirtualDeviceS* device);
+	ssize_t(*impl_read)(struct VirtualDeviceS* device, void* buf, size_t len);
+	ssize_t(*impl_write)(struct VirtualDeviceS* device, const void* buf, size_t count);
+	int (*impl_ioctl)(struct VirtualDeviceS* device, unsigned long request, void* argp);
+
 	struct VirtualDeviceS* next;
 } VirtualDevice;
 
@@ -39,14 +46,14 @@ typedef struct VirtualDeviceS
 // Configuration
 //=============================================================================
 
-typedef struct {
+typedef struct
+{
 	char emulator_host[FILENAME_MAX];
 	int emulator_port;
 	int enable_i2c;
 	int enable_spi;
 	int enable_uart;
 	int enable_gpio;
-	int verbose_logging;
 } proteus_config_t;
 
 //=============================================================================
@@ -60,7 +67,7 @@ extern proteus_config_t g_proteus_config;
 //=============================================================================
 
 // Logging macros
-#if defined(PROTEUS_VERBOSE) && PROTEUS_VERBOSE
+#if PROTEUS_VERBOSE
 #define PROTEUS_LOG(fmt, ...) \
     fprintf(stdout, "[dev-proteus] " fmt "\n", ##__VA_ARGS__)
 #else

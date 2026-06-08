@@ -1,10 +1,9 @@
 /**
  * dev-proteus - Hook Manager
- * Central entry point for all hook libraries
+ * Central entry point for all hook functionality
  *
  * This file handles:
- * - Initialization
- * - Connection to emulator
+ * - Initialization / Destroying
  * - Dispatching to specific hook handlers
  */
 
@@ -35,39 +34,23 @@
 #include "proteus.h"
 
  //=============================================================================
- // Forward declarations for hook functions (defined in separate files)
+ // Forward declarations for public hook functions
  //=============================================================================
 
  // I2C (i2c_hook.c)
 void* i2c_hook_open(const char* name, int flags, ...);
-int i2c_hook_close(VirtualDevice* device);
-ssize_t i2c_hook_read(VirtualDevice* device, void* buf, size_t len);
-ssize_t i2c_hook_write(VirtualDevice* device, const void* buf, size_t count);
-int i2c_hook_ioctl(VirtualDevice* device, unsigned long request, void* argp);
 
 // SPI (spi_hook.c)
 void* spi_hook_open(const char* name, int flags, ...);
-int spi_hook_close(VirtualDevice* device);
-ssize_t spi_hook_read(VirtualDevice* device, void* buf, size_t len);
-ssize_t spi_hook_write(VirtualDevice* device, const void* buf, size_t count);
-int spi_hook_ioctl(VirtualDevice* device, unsigned long request, void* argp);
 
 // UART (uart_hook.c)
 void* uart_hook_open(const char* name, int flags, ...);
-int uart_hook_close(VirtualDevice* device);
-ssize_t uart_hook_read(VirtualDevice* device, void* buf, size_t len);
-ssize_t uart_hook_write(VirtualDevice* device, const void* buf, size_t count);
-int uart_hook_ioctl(VirtualDevice* device, unsigned long request, void* argp);
 
 // GPIO (gpio_hook.c)
 void* gpio_hook_open(const char* name, int flags, ...);
-int gpio_hook_close(VirtualDevice* device);
-ssize_t gpio_hook_read(VirtualDevice* device, void* buf, size_t len);
-ssize_t gpio_hook_write(VirtualDevice* device, const void* buf, size_t count);
-int gpio_hook_ioctl(VirtualDevice* device, unsigned long request, void* argp);
 
 //=============================================================================
-// Real (Original) function pointers
+// Function pointers to original system functions
 //=============================================================================
 
 typedef int (*open_func)(const char* name, int flags, ...);
@@ -79,14 +62,15 @@ typedef int (*ioctl_func)(int fd, unsigned long request, ...);
 //=============================================================================
 // Internal data
 //=============================================================================
-proteus_config_t g_proteus_config = {
+
+proteus_config_t g_proteus_config =
+{
 	.emulator_host = PROTEUS_HOST,
 	.emulator_port = PROTEUS_PORT,
 	.enable_i2c = PROTEUS_ENABLE_I2C,
 	.enable_spi = PROTEUS_ENABLE_SPI,
 	.enable_uart = PROTEUS_ENABLE_UART,
 	.enable_gpio = PROTEUS_ENABLE_GPIO,
-	.verbose_logging = PROTEUS_VERBOSE,
 };
 
 static open_func s_real_open = NULL;
@@ -101,21 +85,29 @@ static pthread_mutex_t s_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
 //=============================================================================
 // Internal functions
 //=============================================================================
+
 __attribute__((constructor))
 void init_hook_manager()
 {
 	proteus_init();
 
+	s_real_open = (open_func)dlsym(RTLD_NEXT, "open");
+	s_real_close = (close_func)dlsym(RTLD_NEXT, "close");
+	s_real_read = (read_func)dlsym(RTLD_NEXT, "read");
+	s_real_write = (write_func)dlsym(RTLD_NEXT, "write");
+	s_real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
+
 	PROTEUS_LOG("Initialized");
 }
 
 __attribute__((destructor))
-void cleanup_hook_manager()
+void destroy_hook_manager()
 {
 	proteus_destroy();
+
 	pthread_mutex_destroy(&s_devices_mutex);
 
-	PROTEUS_LOG("Cleaned Up");
+	PROTEUS_LOG("Destroyed");
 }
 
 static void add_device(VirtualDevice* device)
@@ -190,7 +182,7 @@ static VirtualDevice* find_device_by_fd(int fd)
 }
 
 //=============================================================================
-// Hooked functions
+// Common hook functions
 //=============================================================================
 
 int open(const char* name, int flags, ...)
@@ -208,7 +200,7 @@ int open(const char* name, int flags, ...)
 
 	VirtualDevice* device = NULL;
 
-	if (g_proteus_config.enable_i2c & (strncmp(name, "/dev/i2c-", 9) == 0))
+	if (PROTEUS_ENABLE_I2C & (strncmp(name, "/dev/i2c-", 9) == 0))
 	{
 		device = (VirtualDevice*)i2c_hook_open(name, flags, mode);
 	}
@@ -223,12 +215,7 @@ int open(const char* name, int flags, ...)
 	}
 	else
 	{
-		// Pass through to original open
-		if (s_real_open == NULL)
-		{
-			s_real_open = (open_func)dlsym(RTLD_NEXT, "open");
-		}
-
+		// Pass through to original 'open'
 		resultFd = s_real_open(name, flags, mode);
 	}
 
@@ -243,24 +230,11 @@ int close(int fd)
 	if (device != NULL)
 	{
 		remove_device(device);
-		switch (device->type)
-		{
-		case DEV_TYPE_I2C_E:
-			closeResult = i2c_hook_close(device);
-			break;
-
-		default:
-			PROTEUS_LOG("Failed to close - device type (%d) not implemented", device->type);
-			break;
-		}
+		closeResult = device->impl_close(device);
 	}
 	else
 	{
-		if (s_real_close == NULL)
-		{
-			s_real_close = (close_func)dlsym(RTLD_NEXT, "close");
-		}
-
+		// Pass through to original 'close'
 		closeResult = s_real_close(fd);
 	}
 
@@ -274,24 +248,11 @@ ssize_t read(int fd, void* buf, size_t len)
 	VirtualDevice* device = find_device_by_fd(fd);
 	if (device != NULL)
 	{
-		switch (device->type)
-		{
-		case DEV_TYPE_I2C_E:
-			readResult = i2c_hook_read(device, buf, len);
-			break;
-
-		default:
-			PROTEUS_LOG("Failed to read - device type (%d) not implemented", device->type);
-			break;
-		}
+		readResult = device->impl_read(device, buf, len);
 	}
 	else
 	{
-		if (s_real_read == NULL)
-		{
-			s_real_read = (read_func)dlsym(RTLD_NEXT, "read");
-		}
-
+		// Pass through to original 'read'
 		readResult = s_real_read(fd, buf, len);
 	}
 
@@ -305,24 +266,11 @@ ssize_t write(int fd, const void* buf, size_t count)
 	VirtualDevice* device = find_device_by_fd(fd);
 	if (device != NULL)
 	{
-		switch (device->type)
-		{
-		case DEV_TYPE_I2C_E:
-			writeResult = i2c_hook_write(device, buf, count);
-			break;
-
-		default:
-			PROTEUS_LOG("Failed to write - device type (%d) not implemented", device->type);
-			break;
-		}
+		writeResult = device->impl_write(device, buf, count);
 	}
 	else
 	{
-		if (s_real_write == NULL)
-		{
-			s_real_write = (write_func)dlsym(RTLD_NEXT, "write");
-		}
-
+		// Pass through to original 'write'
 		writeResult = s_real_write(fd, buf, count);
 	}
 
@@ -341,24 +289,11 @@ int ioctl(int fd, unsigned long request, ...)
 	VirtualDevice* device = find_device_by_fd(fd);
 	if (device != NULL)
 	{
-		switch (device->type)
-		{
-		case DEV_TYPE_I2C_E:
-			ioctlResult = i2c_hook_ioctl(device, request, argp);
-			break;
-
-		default:
-			PROTEUS_LOG("Failed to ioctl - device type (%d) not implemented", device->type);
-			break;
-		}
+		ioctlResult = device->impl_ioctl(device, request, argp);
 	}
 	else
 	{
-		if (s_real_ioctl == NULL)
-		{
-			s_real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
-		}
-
+		// Pass through to original 'ioctl'
 		ioctlResult = s_real_ioctl(fd, request, argp);
 	}
 
