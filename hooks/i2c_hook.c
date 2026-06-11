@@ -50,7 +50,7 @@ static int set_i2c_slave(I2cDevice* bus, uint16_t slaveAddress)
 {
 	// Build payload
 	uint8_t payload[BUS_ID_FIELD_SIZE + I2C_SLAVE_ADDR_FIELD_SIZE];
-	uint32_t offset = 0;
+	uint16_t offset = 0;
 
 	// Bus Id
 	memcpy(payload + offset, &bus->base.id, BUS_ID_FIELD_SIZE);
@@ -60,26 +60,27 @@ static int set_i2c_slave(I2cDevice* bus, uint16_t slaveAddress)
 	memcpy(payload + offset, &slaveAddress, I2C_SLAVE_ADDR_FIELD_SIZE);
 	offset += I2C_SLAVE_ADDR_FIELD_SIZE;
 
-	// Send transaction
-	uint32_t sequence = proteus_next_sequence();
-	if (proteus_send_transaction(bus->base.clientSock, PROTEUS_MSG_I2C_SET_SLAVE,
+	// Run transaction
+	uint16_t sequence = proteus_next_sequence();
+
+	if (proteus_send_request(bus->base.clientSock, PROTEUS_CMD_I2C_SET_SLAVE, 
 		sequence, payload, offset) < 0)
 	{
 		return -1;
 	}
-
-	// wait for acknowledgment
-	return proteus_recv_response(bus->base.clientSock, NULL, 0);
+	
+	return proteus_recv_response(bus->base.clientSock, sequence, NULL, 0);
 }
 
-static void apply_i2c_read_data(struct i2c_rdwr_ioctl_data* i2cData, uint8_t* readData, uint32_t readDataLen)
+static void apply_i2c_read_data(struct i2c_rdwr_ioctl_data* i2cData, 
+	const uint8_t* readData, uint16_t readDataLen)
 {
-	uint32_t offset = 0;
+	uint16_t offset = 0;
 	for (uint32_t i = 0; i < i2cData->nmsgs; ++i)
 	{
 		if (i2cData->msgs[i].flags & I2C_M_RD)
 		{
-			uint32_t bytesToCopy = i2cData->msgs[i].len;
+			uint16_t bytesToCopy = i2cData->msgs[i].len;
 			if (offset + bytesToCopy > readDataLen)
 			{
 				bytesToCopy = readDataLen - offset;
@@ -96,7 +97,7 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 #define NUM_OF_MSG_FIELD_SIZE   (4)
 
 	// Calculate request payload size
-	uint32_t reqPayloadLen = BUS_ID_FIELD_SIZE; // Bus id
+	uint16_t reqPayloadLen = BUS_ID_FIELD_SIZE; // Bus id
 	reqPayloadLen += NUM_OF_MSG_FIELD_SIZE; // Messages count
 
 	for (uint32_t i = 0; i < data->nmsgs; ++i)
@@ -108,7 +109,7 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 		}
 	}
 
-	if (reqPayloadLen > PROTEUS_MAX_BUFFER)
+	if (reqPayloadLen > PROTEUS_MAX_PAYLOAD)
 	{
 		PROTEUS_LOG("I2C transaction payload too large: %u bytes", reqPayloadLen);
 
@@ -116,9 +117,9 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 		return -1;
 	}
 
-	// Build payload to send
-	uint8_t payload[PROTEUS_MAX_BUFFER];
-	uint32_t offset = 0;
+	// Build request payload
+	uint8_t payload[PROTEUS_MAX_PAYLOAD];
+	uint16_t offset = 0;
 
 	// Bus id
 	memcpy(payload + offset, &bus->base.id, BUS_ID_FIELD_SIZE);
@@ -146,33 +147,33 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 		}
 	}
 
-	// Send transaction
-	uint32_t sequence = proteus_next_sequence();
-	if (proteus_send_transaction(bus->base.clientSock, PROTEUS_MSG_I2C_TRANSACTION,
+	// Run transaction
+	uint16_t sequence = proteus_next_sequence();
+
+	if (proteus_send_request(bus->base.clientSock, PROTEUS_CMD_I2C_TRANSACTION,
 		sequence, payload, offset) < 0)
 	{
 		return -1;
 	}
 
-	// Calculate total read size
-	uint32_t expectedReadLen = 0;
+	// Calculate expected resp payload length
+	uint16_t expectedRespPayloadLen = 0;
 	for (uint32_t i = 0; i < data->nmsgs; ++i)
 	{
 		if (data->msgs[i].flags & I2C_M_RD)
 		{
-			expectedReadLen += data->msgs[i].len;
+			expectedRespPayloadLen += data->msgs[i].len;
 		}
 	}
-
-	// Receive response
-	if (proteus_recv_response(bus->base.clientSock, payload, expectedReadLen) < 0)
+	
+	if (proteus_recv_response(bus->base.clientSock, sequence, payload, expectedRespPayloadLen) < 0)
 	{
 		return -1;
 	}
 
-	if (expectedReadLen > 0)
+	if (expectedRespPayloadLen > 0)
 	{
-		apply_i2c_read_data(data, payload, expectedReadLen);
+		apply_i2c_read_data(data, payload, expectedRespPayloadLen);
 	}
 
 	return 0;
@@ -182,7 +183,7 @@ static int run_smbus_transaction(I2cDevice* bus, struct i2c_smbus_ioctl_data* sm
 {
 	// Build payload
 	uint8_t payload[BUS_ID_FIELD_SIZE + sizeof(ProteusSMBusMsg)];
-	uint32_t offset = 0;
+	uint16_t offset = 0;
 	int result = 0;
 
 	// Bus id
@@ -227,9 +228,10 @@ static int run_smbus_transaction(I2cDevice* bus, struct i2c_smbus_ioctl_data* sm
 
 	offset += sizeof(ProteusSMBusMsg);
 
-	// Send transaction
-	uint32_t sequence = proteus_next_sequence();
-	if (proteus_send_transaction(bus->base.clientSock, PROTEUS_MSG_SMBUS_TRANSACTION,
+	// Run transaction
+	uint16_t sequence = proteus_next_sequence();
+
+	if (proteus_send_request(bus->base.clientSock, PROTEUS_CMD_SMBUS_TRANSACTION,
 		sequence, payload, offset) < 0)
 	{
 		return -1;
@@ -242,8 +244,7 @@ static int run_smbus_transaction(I2cDevice* bus, struct i2c_smbus_ioctl_data* sm
 	if (expectsResponse)
 	{
 		// READ operation: response with data expected
-		if (proteus_recv_response(bus->base.clientSock,
-			(uint8_t*)msg, sizeof(ProteusSMBusMsg)) < 0)
+		if (proteus_recv_response(bus->base.clientSock, sequence, (uint8_t*)msg, sizeof(ProteusSMBusMsg)) < 0)
 		{
 			return -1;
 		}
@@ -282,8 +283,8 @@ static int run_smbus_transaction(I2cDevice* bus, struct i2c_smbus_ioctl_data* sm
 	}
 	else
 	{
-		// WRITE operation: just wait for acknowledgment
-		result = proteus_recv_response(bus->base.clientSock, NULL, 0);
+		// WRITE operation: payload not expected
+		result = proteus_recv_response(bus->base.clientSock, sequence, NULL, 0);
 	}
 
 	return result;

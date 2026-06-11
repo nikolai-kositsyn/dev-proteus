@@ -31,15 +31,6 @@ class EmulatorServer:
         self.running = False
         self.logger = get_logger()
 
-        self.sequence_counter = 0
-        self._sequence_lock = threading.Lock()
-
-    def _next_sequence(self) -> int:
-        """Get next sequence number"""
-        with self._sequence_lock:
-            self.sequence_counter += 1
-            return self.sequence_counter
-
     def load_config(self) -> None:
         """Load configuration from JSON file"""
         if not self.config_path:
@@ -118,26 +109,30 @@ class EmulatorServer:
             self.logger.info(f"Client connected {client_addr}")
 
             while True:
-                # Read message header               
-
-                header_data = self._recv_exact(client_socket, HEADER_SIZE)
-                if not header_data:
+                # Request header
+                req_header = self._recv_exact(client_socket, REQ_HEADER_SIZE)
+                if not req_header:
                     break
 
-                magic, msg_type, sequence, payload_len = struct.unpack(HEADER_FORMAT, header_data)
+                magic, command, sequence, req_payload_len = struct.unpack(REQ_HEADER_FORMAT, req_header)
+                if magic != PROTEUS_MAGIC:
+                    raise Exception(f"Unexpected magic number: 0x{magic:08X}")
 
-                # Read message payload
-                payload = b''
-                if payload_len > 0:
-                    payload = self._recv_exact(client_socket, payload_len)
-                    if payload is None:
+                # Request payload
+                req_payload = b''
+                if req_payload_len > 0:
+                    req_payload = self._recv_exact(client_socket, req_payload_len)
+                    if req_payload is None:
                         break
 
-                # Process message
-                response_data = self._process_message(msg_type, sequence, payload)
+                # Handle command
+                status, resp_payload = self._handle_command(command, req_payload)
 
-                # Send response
-                client_socket.send(response_data)
+                # Response header
+                resp_header = struct.pack(RESP_HEADER_FORMAT, magic, status, sequence, len(resp_payload))
+
+                # Send full response message
+                client_socket.send(resp_header + resp_payload)
 
         except Exception as e:
             self.logger.error(f"Client handling error: {e}")
@@ -145,14 +140,17 @@ class EmulatorServer:
             client_socket.close()
             self.logger.info(f"Client closed {client_addr}")
 
-    def _process_message(self, msg_type: int, sequence: int, payload: bytes) -> bytes:
-        """Process incoming message and return response"""
-        try:
-            if msg_type == ProteusMessageType.I2C_SET_SLAVE:
-                bus_id, slave_address = ProtocolMessage.decode_set_i2c_slave(payload)
+    def _handle_command(self, command: int, req_payload: bytes) -> Tuple[ProteusStatus, bytes]:
+        """Handle incoming client command and return status and result bytes"""
 
-                # Handle set I2C slave address
-                status = ProteusStatus.SUCCESS
+        status = ProteusStatus.SUCCESS
+        resp_payload = b''
+
+        try:
+            if command == ProteusCommand.I2C_SET_SLAVE:
+                # Set I2C slave address
+
+                bus_id, slave_address = ProtocolMessage.decode_set_i2c_slave(req_payload)
 
                 bus = self.buses.get(f"i2c-{bus_id}")
                 if bus:
@@ -160,48 +158,39 @@ class EmulatorServer:
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                return struct.pack(FOOTER_FORMAT, status, 0)
+            elif command == ProteusCommand.I2C_TRANSACTION:
+                # I2C transaction
 
-            elif msg_type == ProteusMessageType.I2C_TRANSACTION:
-                bus_id, messages = ProtocolMessage.decode_i2c_transaction(payload)
-
-                # Handle I2C transaction
-                status = ProteusStatus.SUCCESS
-                read_data = b''
+                bus_id, messages = ProtocolMessage.decode_i2c_transaction(req_payload)
 
                 bus = self.buses.get(f"i2c-{bus_id}")
                 if bus:
-                    read_data = bus.transaction(messages)
+                    resp_payload = bus.transaction(messages)
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                return struct.pack(FOOTER_FORMAT, status, 0) + read_data
+            elif command == ProteusCommand.SMBUS_TRANSACTION:
+                # SMBus transaction
 
-            elif msg_type == ProteusMessageType.SMBUS_TRANSACTION:
-                bus_id, smbus_request = ProtocolMessage.decode_smbus_transaction(payload)
-
-                # Handle SMBus transaction
-                status = ProteusStatus.SUCCESS
-                response_bytes = b''
+                bus_id, smbus_request = ProtocolMessage.decode_smbus_transaction(req_payload)
 
                 bus = self.buses.get(f"i2c-{bus_id}")
                 if bus:
                     smbus_response = bus.smbus_transaction(smbus_request)
                     if smbus_response:
-                        response_bytes = ProtocolMessage.encode_smbus_transaction(smbus_response)
+                        resp_payload = ProtocolMessage.encode_smbus_transaction(smbus_response)
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                # Footer with status and optional response bytes
-                return struct.pack(FOOTER_FORMAT, status, 0) + response_bytes
-
             else:
-                self.logger.warning(f"Unsupported message: {msg_type}")
-                return struct.pack(FOOTER_FORMAT, ProteusStatus.WRONG_INPUT, 0)
+                self.logger.warning(f"Unsupported command: {command}")
+                status = ProteusStatus.WRONG_INPUT
 
         except Exception as e:
-            self.logger.error(f"Error processing message: {e}")
-            return struct.pack(FOOTER_FORMAT, ProteusStatus.COMMAND_FAILED, 0)
+            self.logger.error(f"Failed to handle command: {e}")
+            status = ProteusStatus.COMMAND_FAILED
+
+        return status, resp_payload
 
     def _recv_exact(self, sock: socket.socket, size: int) -> Optional[bytes]:
         """Receive exact number of bytes"""

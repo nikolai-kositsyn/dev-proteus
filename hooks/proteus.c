@@ -20,7 +20,7 @@
 //=============================================================================
 
 static pthread_mutex_t s_dns_mutex = PTHREAD_MUTEX_INITIALIZER;
-static atomic_uint s_sequence = 0;
+static atomic_ushort s_sequence = 0;
 
 //=============================================================================
 // Init / Destroy
@@ -74,7 +74,7 @@ static int proteus_resolve_host(const char* host, struct sockaddr_in* addr)
 	return resolveResult;
 }
 
-uint32_t proteus_next_sequence()
+uint16_t proteus_next_sequence()
 {
 	return atomic_fetch_add(&s_sequence, 1) + 1;
 }
@@ -136,59 +136,69 @@ void proteus_disconnect(int clientSock)
 	}
 }
 
-int proteus_send_transaction(int clientSock, uint32_t msg_type, uint32_t sequence,
-	const uint8_t* payload, uint32_t payload_len)
+int proteus_send_request(int clientSock, uint16_t command, uint16_t sequence,
+	const uint8_t* payload, uint16_t payloadLen)
 {
-	ProteusHeader header;
-	header.magic = PROTEUS_MAGIC;
-	header.msg_type = msg_type;
-	header.sequence = sequence;
-	header.payload_len = payload_len;
+	ProteusReqHeader reqHeader;
+	reqHeader.magic = PROTEUS_MAGIC;
+	reqHeader.command = command;
+	reqHeader.sequence = sequence;	
+	reqHeader.payloadLen = payloadLen;
 
 	// Send header
-	ssize_t sent = send(clientSock, &header, sizeof(header), 0);
-	if (sent != sizeof(header))
+	ssize_t sent = send(clientSock, &reqHeader, sizeof(reqHeader), 0);
+	if (sent != sizeof(reqHeader))
 	{
-		PROTEUS_LOG("Failed to send header: %s", strerror(errno));
+		PROTEUS_LOG("Failed to send req header: %s", strerror(errno));
 		return -1;
 	}
 
 	// Send payload
-	if (payload_len > 0 && payload)
+	if (payloadLen > 0 && payload != NULL)
 	{
-		sent = send(clientSock, payload, payload_len, 0);
-		if (sent != (ssize_t)payload_len)
+		sent = send(clientSock, payload, payloadLen, 0);
+		if (sent != (ssize_t)payloadLen)
 		{
-			PROTEUS_LOG("Failed to send payload: %s", strerror(errno));
+			PROTEUS_LOG("Failed to send req payload: %s", strerror(errno));
 			return -1;
 		}
 	}
 
-	PROTEUS_LOG(">> msg=%u, seq=%u, payload=%u bytes",
-		msg_type, sequence, payload_len);
+	PROTEUS_LOG(">> cmd=%u, seq=%u, len=%u", command, sequence, payloadLen);
 	return 0;
 }
 
-int proteus_recv_response(int clientSock, uint8_t* respPayload, const uint32_t expectedLen)
+int proteus_recv_response(int clientSock, uint16_t expectedSequence,
+	uint8_t* payload, uint16_t expectedPayloadLen)
 {
-	// Receive footer first
-	ProteusFooter footer;
-	ssize_t recvd = recv(clientSock, &footer, sizeof(footer), 0);
+	// Receive response header
+	ProteusRespHeader respHeader;
+	ssize_t recvd = recv(clientSock, &respHeader, sizeof(respHeader), 0);
 
-	if (recvd != sizeof(footer))
+	if (recvd != sizeof(respHeader))
 	{
-		PROTEUS_LOG("Failed to receive footer: %s", strerror(errno));
+		PROTEUS_LOG("Failed to receive resp header: %s", strerror(errno));
+		return -1;
+	}
+
+	if (respHeader.magic != PROTEUS_MAGIC)
+	{
+		PROTEUS_LOG("Unexpected magic in resp header (0x%08X)", respHeader.magic);
+		return -1;
+	}
+
+	if (respHeader.sequence != expectedSequence)
+	{
+		PROTEUS_LOG("Unexpected sequence in resp header (%u)", respHeader.sequence);
 		return -1;
 	}
 
 	const char* statusStr = NULL;
-	switch (footer.status)
+	switch (respHeader.status)
 	{
-	case PROTEUS_STATUS_SUCCESS:
-	{
+	case PROTEUS_STATUS_SUCCESS:	
 		statusStr = "SUCCESS";
-	}
-	break;
+		break;
 
 	case PROTEUS_STATUS_DEVICE_NOT_FOUND:
 	{
@@ -218,46 +228,44 @@ int proteus_recv_response(int clientSock, uint8_t* respPayload, const uint32_t e
 	}
 	break;
 
-	default:
-	{
+	default:	
 		statusStr = "UNKNOWN";
-	}
-	break;
+		break;
 	}
 
 	(void)statusStr;
-	PROTEUS_LOG("<< %s (%d)", statusStr, footer.status);
+	PROTEUS_LOG("<< %s (%d), seq=%u, len=%u", statusStr, respHeader.status,
+		respHeader.sequence, respHeader.payloadLen);
 
-	if (footer.status != PROTEUS_STATUS_SUCCESS)
+	if (respHeader.status != PROTEUS_STATUS_SUCCESS)
 	{
 		return -1;
 	}
 
-	// Try to receive 'read data' if expected
-	if (expectedLen > 0)
+	// Receive response payload
+	if (respHeader.payloadLen > 0)
 	{
-		if (!respPayload)
+		if ((payload == NULL) || (expectedPayloadLen != respHeader.payloadLen))
 		{
-			PROTEUS_LOG("Failed to receive read data: respPayload is NULL but expectedLen=%u", expectedLen);
+			PROTEUS_LOG("Failed to receive resp payload: client buffer len=%u but got payload len=%u",
+				expectedPayloadLen, respHeader.payloadLen);
 			return -1;
 		}
 
-		uint32_t receivedBytes = 0;
-		while (receivedBytes < expectedLen)
+		uint16_t receivedBytes = 0;
+		while (receivedBytes < respHeader.payloadLen)
 		{
 			recvd = recv(clientSock,
-				respPayload + receivedBytes,
-				expectedLen - receivedBytes, 0);
+				payload + receivedBytes,
+				respHeader.payloadLen - receivedBytes, 0);
 			if (recvd <= 0)
 			{
-				PROTEUS_LOG("Failed to receive read data: %s", strerror(errno));
+				PROTEUS_LOG("Failed to receive resp payload: %s", strerror(errno));
 				return -1;
 			}
 
 			receivedBytes += recvd;
 		}
-
-		PROTEUS_LOG("<< data=%u bytes", receivedBytes);
 	}
 
 	return 0;

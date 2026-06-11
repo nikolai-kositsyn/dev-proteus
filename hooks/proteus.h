@@ -13,22 +13,22 @@
  //=============================================================================
 
 #define PROTEUS_MAGIC       (0x50524F54)  // "PROT"
-#define PROTEUS_MAX_BUFFER  (4096)
+#define PROTEUS_MAX_PAYLOAD	(4096)
 
 #define PROTEUS_TIMEOUT_MS	(500)
 #define PROTEUS_RETRY_COUNT	(3)
 
 
 //=============================================================================
-// Message types
+// Commands
 //=============================================================================
 
-typedef enum ProteusMsgTypeE
+typedef enum ProteusCommandE
 {
 	// I2C / SMBus
-	PROTEUS_MSG_I2C_SET_SLAVE = 0,
-	PROTEUS_MSG_I2C_TRANSACTION = 1,
-	PROTEUS_MSG_SMBUS_TRANSACTION = 2,
+	PROTEUS_CMD_I2C_SET_SLAVE = 0,
+	PROTEUS_CMD_I2C_TRANSACTION = 1,
+	PROTEUS_CMD_SMBUS_TRANSACTION = 2,
 
 	// SPI
 	PROTEUS_MSG_SPI_TRANSACTION = 10,
@@ -41,7 +41,7 @@ typedef enum ProteusMsgTypeE
 	PROTEUS_MSG_GPIO_READ = 30,
 	PROTEUS_MSG_GPIO_WRITE = 31,
 	PROTEUS_MSG_GPIO_DIRECTION = 32,
-} ProteusMsgType;
+} ProteusCommandEnum;
 
 //=============================================================================
 // Status codes
@@ -61,33 +61,36 @@ typedef enum ProteusStatusE
 // Protocol structures (binary format)
 //=============================================================================
 
-#define BUS_ID_FIELD_SIZE           (sizeof(uint32_t))
-#define I2C_SLAVE_ADDR_FIELD_SIZE   (sizeof(uint16_t))
-
 #pragma pack(push, 1)
 
-// Header: magic (4B), msg_type (4B), sequence (4B), payload_len (4B)
+// Request Header
 typedef struct
 {
 	uint32_t magic;
-	uint32_t msg_type;
-	uint32_t sequence;
-	uint32_t payload_len;
-} ProteusHeader;
+	uint16_t command;
+	uint16_t sequence;	
+	uint16_t payloadLen;
+} ProteusReqHeader;
 
-// Footer: status (4B), reserved (4B)
+// Response Header
 typedef struct
 {
-	uint32_t status;
-	uint32_t reserved;
-} ProteusFooter;
+	uint32_t magic;
+	uint16_t status;
+	uint16_t sequence;
+	uint16_t payloadLen;
+} ProteusRespHeader;
 
-// I2C message header: addr (2B), flags (2B), len (4B)
+// Defines
+#define BUS_ID_FIELD_SIZE           (sizeof(uint32_t))
+#define I2C_SLAVE_ADDR_FIELD_SIZE   (sizeof(uint16_t))
+
+// I2C Message Header
 typedef struct
 {
 	uint16_t addr;
 	uint16_t flags;
-	uint32_t len;
+	uint16_t len;
 } ProteusI2cMsgHeader;
 
 // SMBus message: read_write (1B), command (1B), size (4B), block (34B)
@@ -101,7 +104,7 @@ typedef struct
 	uint8_t block[PROTEUS_SMBUS_BLOCK_SIZE];
 }ProteusSMBusMsg;
 
-// SPI message header: cs (1B), mode (1B), speed (4B), bits (1B), len (4B)
+// SPI Message Header
 typedef struct
 {
 	uint8_t  cs;
@@ -120,12 +123,14 @@ typedef struct
 void proteus_init();
 void proteus_destroy();
 
-uint32_t proteus_next_sequence();
+uint16_t proteus_next_sequence();
 
 int proteus_connect();
 void proteus_disconnect(int clientSock);
-int proteus_send_transaction(int clientSock, uint32_t msgType, uint32_t sequence,
-	const uint8_t* payload, uint32_t payloadLen);
-int proteus_recv_response(int clientSock, uint8_t* respPayload, const uint32_t expectedLen);
+
+int proteus_send_request(int clientSock, uint16_t command, uint16_t sequence,
+	const uint8_t* payload, uint16_t payloadLen);
+int proteus_recv_response(int clientSock, uint16_t expectedSequence,
+	uint8_t* payload, uint16_t expectedPayloadLen);
 
 #endif // PROTEUS_PROTEUS_H
