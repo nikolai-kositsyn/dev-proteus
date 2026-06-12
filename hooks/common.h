@@ -16,19 +16,19 @@
  // Base Virtual Device
  //=============================================================================
 
-typedef enum DeviceTypeE
+typedef enum DevTypeE
 {
 	DEV_TYPE_I2C_E = 0,
 	DEV_TYPE_SPI_E,
 	DEV_TYPE_UART_E,
 	DEV_TYPE_GPIO_E,
 
-	DEV_TYPE_MAX_E = 0xFF, // Keep it last
-}DeviceTypeEnum;
+	DEV_TYPE_MAX_E, // Keep it last
+}DevTypeEnum;
 
 typedef struct VirtualDeviceS
 {
-	DeviceTypeEnum type;
+	DevTypeEnum type;
 	int fd;
 	char name[NAME_MAX];
 	uint32_t id;

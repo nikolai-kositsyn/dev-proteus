@@ -1,12 +1,13 @@
 """Main emulator server"""
 
+import re
 import socket
 import threading
 from typing import Dict, Optional
 import struct
 
 from dev_proteus.core.protocol import *
-from dev_proteus.buses.bus_base import BusBase
+from dev_proteus.buses.bus_base import BusBase, DevType
 from dev_proteus.buses.i2c_bus import I2CBus
 from dev_proteus.buses.spi_bus import SPIBus
 from dev_proteus.buses.uart_bus import UARTBus
@@ -26,7 +27,7 @@ class EmulatorServer:
         self.host = host
         self.port = port
         self.config_path = config_path
-        self.buses: Dict[str, BusBase] = {}
+        self.buses: List[BusBase] = []
         self.socket: Optional[socket.socket] = None
         self.running = False
         self.logger = get_logger()
@@ -40,19 +41,23 @@ class EmulatorServer:
         config = load_config(self.config_path)
 
         for bus_item in config.get('buses', []):
-            bus_type = bus_item.get('type')
-            bus_id = bus_item.get('bus_id')
+            bus_name = bus_item.get('name')
+            bus_config = bus_item.get('config', {})      
 
-            if bus_type == 'i2c':
-                bus = I2CBus(bus_id)
-            elif bus_type == 'spi':
-                bus = SPIBus(bus_id, bus_item.get('config', {}))
-            elif bus_type == 'uart':
-                bus = UARTBus(bus_item.get('port', 'ttyS0'), bus_item.get('config', {}))
-            elif bus_type == 'gpio':
-                bus = GPIOBus(bus_item.get('chip', 0))
+            if "i2c" in bus_name:                
+                bus = I2CBus(bus_name, bus_config)
+
+            elif "spi" in bus_name:                
+                bus = SPIBus(bus_name, bus_config)
+
+            elif "tty" in bus_name:                
+                bus = UARTBus(bus_name, bus_config)
+
+            elif "gpiochip" in bus_name:                
+                bus = GPIOBus(bus_name, bus_config)
+
             else:
-                self.logger.warning(f"Unknown bus type: {bus_type}")
+                self.logger.warning(f"Unsupported device: {bus_name}")
                 continue
 
             # Register devices on bus
@@ -71,12 +76,12 @@ class EmulatorServer:
                     bus.register_device(device)
 
                     self.logger.info(
-                        f"Registered class='{device_class}', '{device_name}' at {device_address} on {bus_type} bus {bus_id}")
+                        f"Registered class='{device_class}', '{device_name}' at {device_address} on {bus.name}")
 
                 except Exception as e:
                     self.logger.error(f"Failed to register device: {e}")
 
-            self.buses[bus.name] = bus
+            self.buses.append(bus)
 
     def start(self) -> None:
         """Start the emulator server"""
@@ -103,7 +108,7 @@ class EmulatorServer:
                     self.logger.error(f"Accept error: {e}")
 
     def _handle_client(self, client_socket: socket.socket, client_addr) -> None:
-        """Handle connected client"""
+        """ Handle connected client """
         try:
 
             self.logger.info(f"Client connected {client_addr}")
@@ -140,6 +145,12 @@ class EmulatorServer:
             client_socket.close()
             self.logger.info(f"Client closed {client_addr}")
 
+    def _find_by_type_and_id(self, target_type: DevType, target_id: int) -> Optional[BusBase]:
+        for bus in self.buses:
+            if bus.type == target_type and bus.id == target_id:
+                return bus
+        return None
+    
     def _handle_command(self, command: int, req_payload: bytes) -> Tuple[ProteusStatus, bytes]:
         """Handle incoming client command and return status and result bytes"""
 
@@ -147,12 +158,25 @@ class EmulatorServer:
         resp_payload = b''
 
         try:
-            if command == ProteusCommand.I2C_SET_SLAVE:
+            if command == ProteusCommand.GET_DEVICES:
+                # Get all devices                
+                data_bytes = bytearray()
+
+                # Count of devices
+                data_bytes.extend(struct.pack(COUNT_OF_DEVICES_FORMAT, len(self.buses)))
+
+                # Devices info
+                for bus in self.buses:
+                    data_bytes.extend(struct.pack(DEVICE_INFO_FORMAT,
+                                                  bus.type, bus.name.encode('ascii')[:DEVICE_NAME_LEN]))                
+                resp_payload = bytes(data_bytes)
+
+            elif command == ProteusCommand.I2C_SET_SLAVE:
                 # Set I2C slave address
 
                 bus_id, slave_address = ProtocolMessage.decode_set_i2c_slave(req_payload)
 
-                bus = self.buses.get(f"i2c-{bus_id}")
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
                     bus.set_slave_address(slave_address)
                 else:
@@ -163,7 +187,7 @@ class EmulatorServer:
 
                 bus_id, messages = ProtocolMessage.decode_i2c_transaction(req_payload)
 
-                bus = self.buses.get(f"i2c-{bus_id}")
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
                     resp_payload = bus.transaction(messages)
                 else:
@@ -174,7 +198,7 @@ class EmulatorServer:
 
                 bus_id, smbus_request = ProtocolMessage.decode_smbus_transaction(req_payload)
 
-                bus = self.buses.get(f"i2c-{bus_id}")
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
                     smbus_response = bus.smbus_transaction(smbus_request)
                     if smbus_response:

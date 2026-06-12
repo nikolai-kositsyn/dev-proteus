@@ -55,8 +55,7 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 {
   "buses": [
     {
-      "type": "i2c",
-      "bus_id": 1,
+      "name": "/dev/i2c-1",      
       "devices": [
         {
           "address": "0x51",
@@ -65,9 +64,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+
     {
-      "type": "i2c",
-      "bus_id": 2,
+      "name": "/dev/i2c-2",
       "devices": [
         {
           "address": "0x52",
@@ -76,9 +75,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+
     {
-      "type": "i2c",
-      "bus_id": 3,
+      "name": "/dev/i2c-3",      
       "devices": [
         {
           "address": "0x53",
@@ -87,9 +86,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+
     {
-      "type": "i2c",
-      "bus_id": 4,
+      "name": "/dev/i2c-4",      
       "devices": [
         {
           "address": "0x54",
@@ -111,7 +110,7 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
           }
         }
       ]
-    }
+    }    
   ]
 }
 ```

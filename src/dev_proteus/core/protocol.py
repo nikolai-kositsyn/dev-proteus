@@ -57,6 +57,12 @@ RESP_HEADER_SIZE = struct.calcsize(RESP_HEADER_FORMAT)
 BUS_ID_FORMAT = '<I'
 BUS_ID_SIZE = struct.calcsize(BUS_ID_FORMAT)
 
+# Device/Bus info: type (1B), name (255B)
+DEVICE_NAME_LEN = 255
+COUNT_OF_DEVICES_FORMAT = '<H'
+DEVICE_INFO_FORMAT = '<B255s'
+DEVICE_INFO_SIZE = struct.calcsize(DEVICE_INFO_FORMAT)
+
 """
 I2C
 """

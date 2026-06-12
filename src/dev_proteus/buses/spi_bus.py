@@ -1,15 +1,21 @@
-"""SPI bus implementation"""
+""" SPI bus implementation """
 
+import re
 from typing import Dict, Optional
-from dev_proteus.buses.bus_base import BusBase
+from dev_proteus.buses.bus_base import BusBase, DevType
 
 
 class SPIBus(BusBase):
-    """SPI bus emulation"""
+    """ SPI bus emulation """
 
-    def __init__(self, bus_id: int, config: Optional[Dict] = None):
-        super().__init__(f"spi-{bus_id}")
-        self.bus_id = bus_id
+    def __init__(self, name: str, config: Optional[Dict] = None):
+        super().__init__(name=name)
+        
+        self.type = DevType.SPI
+        id, cs = map(int, re.search(r'/dev/spidev(\d+)\.(\d+)', name).groups())
+        self.id = id
+        self.cs = cs        
+        
         self.mode = config.get('mode', 0) if config else 0
         self.speed = config.get('speed', 1000000) if config else 1000000
         self.bits_per_word = config.get('bits_per_word', 8) if config else 8

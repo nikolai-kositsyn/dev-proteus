@@ -96,7 +96,7 @@ typedef struct ProteusDeviceInfoS
 {
 	uint8_t type;
 	char name[NAME_MAX];
-}ProteusDeviceInfo;
+}ProteusDevInfo;
 
 //=============================================================================
 // Set I2C Address
@@ -149,7 +149,6 @@ typedef struct
 // Socket communication
 //=============================================================================
 
-void proteus_init();
 void proteus_destroy();
 
 uint16_t proteus_next_sequence();
@@ -160,6 +159,6 @@ void proteus_disconnect(int clientSock);
 int proteus_send_request(int clientSock, uint16_t command, uint16_t sequence,
 	const uint8_t* payload, uint16_t payloadLen);
 int proteus_recv_response(int clientSock, uint16_t expectedSequence,
-	uint8_t* payload, uint16_t expectedPayloadLen);
+	uint8_t* payload, uint16_t payloadBufferSize, uint16_t* actualPayloadLen);
 
 #endif // PROTEUS_PROTEUS_H

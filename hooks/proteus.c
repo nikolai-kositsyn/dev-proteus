@@ -26,9 +26,6 @@ static atomic_ushort s_sequence = 0;
 // Init / Destroy
 //=============================================================================
 
-void proteus_init() {
-}
-
 void proteus_destroy()
 {
 	pthread_mutex_destroy(&s_dns_mutex);
@@ -169,7 +166,7 @@ int proteus_send_request(int clientSock, uint16_t command, uint16_t sequence,
 }
 
 int proteus_recv_response(int clientSock, uint16_t expectedSequence,
-	uint8_t* payload, uint16_t expectedPayloadLen)
+	uint8_t* payload, uint16_t payloadBufSize, uint16_t* actualPayloadLen)
 {
 	// Receive response header
 	ProteusRespHeader respHeader;
@@ -245,19 +242,23 @@ int proteus_recv_response(int clientSock, uint16_t expectedSequence,
 	// Receive response payload
 	if (respHeader.payloadLen > 0)
 	{
-		if ((payload == NULL) || (expectedPayloadLen != respHeader.payloadLen))
+		if (payload == NULL || actualPayloadLen == NULL)
+		{
+			PROTEUS_LOG("Failed to receive resp payload: invalid client arguments");
+			return -1;
+		}
+		
+		if (payloadBufSize < respHeader.payloadLen)
 		{
 			PROTEUS_LOG("Failed to receive resp payload: client buffer len=%u but got payload len=%u",
-				expectedPayloadLen, respHeader.payloadLen);
+				payloadBufSize, respHeader.payloadLen);
 			return -1;
 		}
 
 		uint16_t receivedBytes = 0;
 		while (receivedBytes < respHeader.payloadLen)
 		{
-			recvd = recv(clientSock,
-				payload + receivedBytes,
-				respHeader.payloadLen - receivedBytes, 0);
+			recvd = recv(clientSock, payload + receivedBytes, respHeader.payloadLen - receivedBytes, 0);
 			if (recvd <= 0)
 			{
 				PROTEUS_LOG("Failed to receive resp payload: %s", strerror(errno));
@@ -266,6 +267,8 @@ int proteus_recv_response(int clientSock, uint16_t expectedSequence,
 
 			receivedBytes += recvd;
 		}
+
+		*actualPayloadLen = receivedBytes;
 	}
 
 	return 0;
