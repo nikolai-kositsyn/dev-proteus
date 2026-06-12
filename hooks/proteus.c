@@ -48,7 +48,7 @@ static int proteus_resolve_host(const char* host, struct sockaddr_in* addr)
 
 	memset(addr, 0, sizeof(*addr));
 	addr->sin_family = AF_INET;
-	addr->sin_port = htons(g_proteus_config.emulator_port);
+	addr->sin_port = htons(g_proteusCtx.emulatorPort);
 
 	pthread_mutex_lock(&s_dns_mutex);
 
@@ -89,39 +89,39 @@ int proteus_connect()
 	}
 
 	struct sockaddr_in hostAddr;
-	if (proteus_resolve_host(g_proteus_config.emulator_host, &hostAddr) < 0)
+	if (proteus_resolve_host(g_proteusCtx.emulatorHost, &hostAddr) < 0)
 	{
-		close(sock);
+		g_proteusCtx.real_close(sock);
 		return -1;
 	}
 
 	// Set socket timeout
 	struct timeval timeout;
-	timeout.tv_sec = PROTEUS_TIMEOUT_MS / 1000;
-	timeout.tv_usec = (PROTEUS_TIMEOUT_MS % 1000) * 1000;
+	timeout.tv_sec = g_proteusCtx.emulatorTimeoutMs / 1000;
+	timeout.tv_usec = (g_proteusCtx.emulatorTimeoutMs % 1000) * 1000;
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
 	// Attempt connection with retries
-	int retry = PROTEUS_RETRY_COUNT;
+	int retry = g_proteusCtx.emulatorRetry;
 	while (retry-- > 0)
 	{
 		if (connect(sock, (struct sockaddr*)&hostAddr, sizeof(hostAddr)) == 0)
 		{
 			PROTEUS_LOG("Connected to emulator at %s:%d",
-				g_proteus_config.emulator_host,
-				g_proteus_config.emulator_port);
+				g_proteusCtx.emulatorHost, g_proteusCtx.emulatorPort);
 
 			return sock;
 		}
 
-		usleep(100000); // 100ms
+		usleep(g_proteusCtx.emulatorDelayMs * 1000);
 	}
 
 	PROTEUS_LOG("Failed to connect to %s:%d, timeout: %d ms, retry: %d (%s)",
-		g_proteus_config.emulator_host, g_proteus_config.emulator_port,
-		PROTEUS_TIMEOUT_MS, PROTEUS_RETRY_COUNT, strerror(errno));
-	close(sock);
+		g_proteusCtx.emulatorHost, g_proteusCtx.emulatorPort,
+		g_proteusCtx.emulatorTimeoutMs, g_proteusCtx.emulatorRetry, strerror(errno));
+	
+	g_proteusCtx.real_close(sock);
 
 	return -1;
 }
@@ -130,7 +130,7 @@ void proteus_disconnect(int clientSock)
 {
 	if (clientSock >= 0)
 	{
-		int closeResult = close(clientSock);
+		int closeResult = g_proteusCtx.real_close(clientSock);
 		PROTEUS_LOG("Disconnected from emulator: %s (%d)",
 			strerror(closeResult), closeResult);
 	}

@@ -50,34 +50,18 @@ void* uart_hook_open(const char* name, int flags, ...);
 void* gpio_hook_open(const char* name, int flags, ...);
 
 //=============================================================================
-// Function pointers to original system functions
-//=============================================================================
-
-typedef int (*open_func)(const char* name, int flags, ...);
-typedef int (*close_func)(int fd);
-typedef ssize_t(*read_func)(int fd, void* buf, size_t len);
-typedef ssize_t(*write_func)(int fd, const void* buf, size_t count);
-typedef int (*ioctl_func)(int fd, unsigned long request, ...);
-
-//=============================================================================
 // Internal data
 //=============================================================================
 
-proteus_config_t g_proteus_config =
+ProteusContext g_proteusCtx =
 {
-	.emulator_host = PROTEUS_HOST,
-	.emulator_port = PROTEUS_PORT,
-	.enable_i2c = PROTEUS_ENABLE_I2C,
-	.enable_spi = PROTEUS_ENABLE_SPI,
-	.enable_uart = PROTEUS_ENABLE_UART,
-	.enable_gpio = PROTEUS_ENABLE_GPIO,
+	// Server
+	.emulatorHost = PROTEUS_HOST,
+	.emulatorPort = PROTEUS_PORT,
+	.emulatorTimeoutMs = PROTEUS_TIMEOUT_MS,
+	.emulatorRetry = PROTEUS_RETRY,
+	.emulatorDelayMs = PROTEUS_DELAY_MS,	
 };
-
-static open_func s_real_open = NULL;
-static close_func s_real_close = NULL;
-static read_func s_real_read = NULL;
-static write_func s_real_write = NULL;
-static ioctl_func s_real_ioctl = NULL;
 
 static VirtualDevice* s_devices = NULL;
 static pthread_mutex_t s_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -91,11 +75,12 @@ void init_hook_manager()
 {
 	proteus_init();
 
-	s_real_open = (open_func)dlsym(RTLD_NEXT, "open");
-	s_real_close = (close_func)dlsym(RTLD_NEXT, "close");
-	s_real_read = (read_func)dlsym(RTLD_NEXT, "read");
-	s_real_write = (write_func)dlsym(RTLD_NEXT, "write");
-	s_real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
+	// Function pointers to original system functions	
+	g_proteusCtx.real_open = (open_func)dlsym(RTLD_NEXT, "open");
+	g_proteusCtx.real_close = (close_func)dlsym(RTLD_NEXT, "close");
+	g_proteusCtx.real_read = (read_func)dlsym(RTLD_NEXT, "read");
+	g_proteusCtx.real_write = (write_func)dlsym(RTLD_NEXT, "write");
+	g_proteusCtx.real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
 
 	PROTEUS_LOG("Initialized");
 }
@@ -187,6 +172,8 @@ static VirtualDevice* find_device_by_fd(int fd)
 
 int open(const char* name, int flags, ...)
 {
+	//PROTEUS_LOG("Enter to open, name=%s", name);
+
 	int resultFd = -1;
 
 	mode_t mode = 0;
@@ -200,7 +187,7 @@ int open(const char* name, int flags, ...)
 
 	VirtualDevice* device = NULL;
 
-	if (PROTEUS_ENABLE_I2C & (strncmp(name, "/dev/i2c-", 9) == 0))
+	if (strncmp(name, "/dev/i2c-", 9) == 0)
 	{
 		device = (VirtualDevice*)i2c_hook_open(name, flags, mode);
 	}
@@ -216,7 +203,7 @@ int open(const char* name, int flags, ...)
 	else
 	{
 		// Pass through to original 'open'
-		resultFd = s_real_open(name, flags, mode);
+		resultFd = g_proteusCtx.real_open(name, flags, mode);
 	}
 
 	return resultFd;
@@ -224,6 +211,8 @@ int open(const char* name, int flags, ...)
 
 int close(int fd)
 {
+	//PROTEUS_LOG("Enter to close, fd=%d", fd);
+
 	int closeResult = -1;
 
 	VirtualDevice* device = find_device_by_fd(fd);
@@ -235,7 +224,7 @@ int close(int fd)
 	else
 	{
 		// Pass through to original 'close'
-		closeResult = s_real_close(fd);
+		closeResult = g_proteusCtx.real_close(fd);
 	}
 
 	return closeResult;
@@ -253,7 +242,7 @@ ssize_t read(int fd, void* buf, size_t len)
 	else
 	{
 		// Pass through to original 'read'
-		readResult = s_real_read(fd, buf, len);
+		readResult = g_proteusCtx.real_read(fd, buf, len);
 	}
 
 	return readResult;
@@ -271,7 +260,7 @@ ssize_t write(int fd, const void* buf, size_t count)
 	else
 	{
 		// Pass through to original 'write'
-		writeResult = s_real_write(fd, buf, count);
+		writeResult = g_proteusCtx.real_write(fd, buf, count);
 	}
 
 	return writeResult;
@@ -294,7 +283,7 @@ int ioctl(int fd, unsigned long request, ...)
 	else
 	{
 		// Pass through to original 'ioctl'
-		ioctlResult = s_real_ioctl(fd, request, argp);
+		ioctlResult = g_proteusCtx.real_ioctl(fd, request, argp);
 	}
 
 	return ioctlResult;

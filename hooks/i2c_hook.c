@@ -319,7 +319,7 @@ void* i2c_hook_open(const char* name, int flags, ...)
 		return device;
 	}
 
-	int fd = open("/dev/null", O_RDWR);
+	int fd = g_proteusCtx.real_open("/dev/null", O_RDWR);
 	if (fd > 0)
 	{
 		device = (I2cDevice*)malloc(sizeof(I2cDevice));
@@ -346,7 +346,8 @@ void* i2c_hook_open(const char* name, int flags, ...)
 			}
 			else
 			{
-				close(fd);
+				g_proteusCtx.real_close(fd);
+
 				free((void*)device);
 				device = NULL;
 			}
@@ -354,7 +355,7 @@ void* i2c_hook_open(const char* name, int flags, ...)
 		else
 		{
 			PROTEUS_LOG("Failed to allocate I2C device");
-			close(fd);
+			g_proteusCtx.real_close(fd);
 		}
 	}
 	else
@@ -371,9 +372,9 @@ void* i2c_hook_open(const char* name, int flags, ...)
 
 static int i2c_hook_close(VirtualDevice* device)
 {
-	PROTEUS_LOG("[I2C] %s: close, fd=%d", device->name, device->fd);
+	PROTEUS_LOG("[I2C] %s: close, fd=%d", device->name, device->fd);	
 
-	int closeResult = close(device->fd);
+	int closeResult = g_proteusCtx.real_close(device->fd);
 	proteus_disconnect(device->clientSock);
 	free((void*)device);
 

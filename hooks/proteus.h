@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <linux/limits.h> // NAME_MAX
 
  //=============================================================================
  // Protocol constants
@@ -15,32 +16,32 @@
 #define PROTEUS_MAGIC       (0x50524F54)  // "PROT"
 #define PROTEUS_MAX_PAYLOAD	(4096)
 
-#define PROTEUS_TIMEOUT_MS	(500)
-#define PROTEUS_RETRY_COUNT	(3)
-
-
 //=============================================================================
 // Commands
 //=============================================================================
 
 typedef enum ProteusCommandE
 {
+	// General
+	PROTEUS_CMD_GET_DEVICES = 0,
+
 	// I2C / SMBus
-	PROTEUS_CMD_I2C_SET_SLAVE = 0,
-	PROTEUS_CMD_I2C_TRANSACTION = 1,
-	PROTEUS_CMD_SMBUS_TRANSACTION = 2,
+	PROTEUS_CMD_I2C_SET_SLAVE = 10,
+	PROTEUS_CMD_I2C_TRANSACTION,
+	PROTEUS_CMD_SMBUS_TRANSACTION,
 
 	// SPI
-	PROTEUS_MSG_SPI_TRANSACTION = 10,
+	PROTEUS_MSG_SPI_TRANSACTION = 20,
 
 	// UART
-	PROTEUS_MSG_UART_READ = 20,
-	PROTEUS_MSG_UART_WRITE = 21,
+	PROTEUS_MSG_UART_READ = 30,
+	PROTEUS_MSG_UART_WRITE,
 
 	// GPIO
-	PROTEUS_MSG_GPIO_READ = 30,
-	PROTEUS_MSG_GPIO_WRITE = 31,
-	PROTEUS_MSG_GPIO_DIRECTION = 32,
+	PROTEUS_MSG_GPIO_READ = 40,
+	PROTEUS_MSG_GPIO_WRITE,
+	PROTEUS_MSG_GPIO_DIRECTION,
+
 } ProteusCommandEnum;
 
 //=============================================================================
@@ -81,17 +82,42 @@ typedef struct
 	uint16_t payloadLen;
 } ProteusRespHeader;
 
-// Defines
+//=============================================================================
+// Common Defines
+//=============================================================================
+
 #define BUS_ID_FIELD_SIZE           (sizeof(uint32_t))
+
+//=============================================================================
+// Get Buses to emulate / hook
+//=============================================================================
+
+typedef struct ProteusDeviceInfoS
+{
+	uint8_t type;
+	char name[NAME_MAX];
+}ProteusDeviceInfo;
+
+//=============================================================================
+// Set I2C Address
+//=============================================================================
+
 #define I2C_SLAVE_ADDR_FIELD_SIZE   (sizeof(uint16_t))
 
-// I2C Message Header
+//=============================================================================
+// I2C Transaction
+//=============================================================================
+
 typedef struct
 {
 	uint16_t addr;
 	uint16_t flags;
 	uint16_t len;
 } ProteusI2cMsgHeader;
+
+//=============================================================================
+// SMBus Transaction
+//=============================================================================
 
 // SMBus message: read_write (1B), command (1B), size (4B), block (34B)
 #define PROTEUS_SMBUS_BLOCK_SIZE    (32 /* I2C_SMBUS_BLOCK_MAX */ + 2 /* length + pec */)
@@ -104,7 +130,10 @@ typedef struct
 	uint8_t block[PROTEUS_SMBUS_BLOCK_SIZE];
 }ProteusSMBusMsg;
 
-// SPI Message Header
+//=============================================================================
+// SPI Transaction
+//=============================================================================
+
 typedef struct
 {
 	uint8_t  cs;

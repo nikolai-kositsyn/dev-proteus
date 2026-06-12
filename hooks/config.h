@@ -12,14 +12,11 @@
  //=============================================================================
 
  // Emulator connection settings
-#define PROTEUS_HOST    "127.0.0.1"
-#define PROTEUS_PORT    (4242)
-
-// Which hooks to enable
-#define PROTEUS_ENABLE_I2C      (1)
-#define PROTEUS_ENABLE_SPI      (0)
-#define PROTEUS_ENABLE_UART     (0)
-#define PROTEUS_ENABLE_GPIO     (0)
+#define PROTEUS_HOST        "127.0.0.1"
+#define PROTEUS_PORT        (4242)
+#define PROTEUS_TIMEOUT_MS  (500)
+#define PROTEUS_RETRY       (3)
+#define PROTEUS_DELAY_MS    (100)
 
 // Debug settings
 #define PROTEUS_VERBOSE         (1)

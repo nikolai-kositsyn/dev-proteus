@@ -12,22 +12,25 @@ PROTEUS_MAX_PAYLOAD = 4096
 
 # Commands
 class ProteusCommand(IntEnum):
+    # General
+    GET_DEVICES = 0
+
     # I2C / SMBus
-    I2C_SET_SLAVE = 0
-    I2C_TRANSACTION = 1
-    SMBUS_TRANSACTION = 2
+    I2C_SET_SLAVE = 10
+    I2C_TRANSACTION = 11
+    SMBUS_TRANSACTION = 12
 
     # SPI
-    SPI_TRANSACTION = 10
+    SPI_TRANSACTION = 20
 
     # UART
-    UART_READ = 20
-    UART_WRITE = 21
+    UART_READ = 30
+    UART_WRITE = 31
 
     # GPIO
-    GPIO_READ = 30
-    GPIO_WRITE = 31
-    GPIO_DIRECTION = 32
+    GPIO_READ = 40
+    GPIO_WRITE = 41
+    GPIO_DIRECTION = 42
 
 
 # Status codes

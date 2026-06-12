@@ -117,7 +117,7 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 ```
 
 ## Hook Library and Test Clients Build Options
-### Build with defaults (127.0.0.1:4242, I2C only)
+### Build with defaults (127.0.0.1:4242, timeout=500ms, retry=3, delay=100ms)
 ```bash
 ./scripts/build_all.sh
 ```
@@ -127,9 +127,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 PROTEUS_HOST=192.168.0.80 PROTEUS_PORT=9000 ./scripts/build_all.sh
 ```
 
-### Enable SPI and UART hooks
+### Build with custom timeout, retry and delay
 ```bash
-PROTEUS_ENABLE_SPI=1 PROTEUS_ENABLE_UART=1 ./scripts/build_all.sh
+PROTEUS_TIMEOUT_MS=100 PROTEUS_RETRY=5 PROTEUS_DELAY_MS=10 ./scripts/build_all.sh
 ```
 
 ### Build for ARM64
