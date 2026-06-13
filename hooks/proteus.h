@@ -7,41 +7,57 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <linux/limits.h> // NAME_MAX
 
  //=============================================================================
  // Protocol constants
  //=============================================================================
 
-#define PROTEUS_MAGIC       (0x50524F54)  // "PROT"
-#define PROTEUS_MAX_BUFFER  (4096)
-
-#define PROTEUS_TIMEOUT_MS	(500)
-#define PROTEUS_RETRY_COUNT	(3)
-
+#define PROTEUS_MAGIC       		(0x50524F54)	// "PROT"
+#define PROTEUS_PAYLOAD_MAX_SIZE	(8 * 1024)		// 8KB max
 
 //=============================================================================
-// Message types
+// Commands
 //=============================================================================
 
-typedef enum ProteusMsgTypeE
+typedef enum ProteusCommandE
 {
+	// General
+	PROTEUS_CMD_GET_DEVICES = 0,
+
 	// I2C / SMBus
-	PROTEUS_MSG_I2C_SET_SLAVE = 0,
-	PROTEUS_MSG_I2C_TRANSACTION = 1,
-	PROTEUS_MSG_SMBUS_TRANSACTION = 2,
+	PROTEUS_CMD_I2C_SET_SLAVE = 10,
+	PROTEUS_CMD_I2C_TRANSACTION,
+	PROTEUS_CMD_SMBUS_TRANSACTION,
 
 	// SPI
-	PROTEUS_MSG_SPI_TRANSACTION = 10,
+	PROTEUS_CMD_SPI_SET_MODE = 20,
+	PROTEUS_CMD_SPI_GET_MODE,
+
+	PROTEUS_CMD_SPI_SET_BITS_PER_WORD,
+    PROTEUS_CMD_SPI_GET_BITS_PER_WORD,
+
+    PROTEUS_CMD_SPI_SET_MAX_SPEED_HZ,
+    PROTEUS_CMD_SPI_GET_MAX_SPEED_HZ,
+
+    PROTEUS_CMD_SPI_SET_LSB_FIRST,
+    PROTEUS_CMD_SPI_GET_LSB_FIRST,
+
+    PROTEUS_CMD_SPI_SET_MODE32,
+    PROTEUS_CMD_SPI_GET_MODE32,
+
+    PROTEUS_CMD_SPI_TRANSACTION,	
 
 	// UART
-	PROTEUS_MSG_UART_READ = 20,
-	PROTEUS_MSG_UART_WRITE = 21,
+	PROTEUS_MSG_UART_READ = 40,
+	PROTEUS_MSG_UART_WRITE,
 
 	// GPIO
-	PROTEUS_MSG_GPIO_READ = 30,
-	PROTEUS_MSG_GPIO_WRITE = 31,
-	PROTEUS_MSG_GPIO_DIRECTION = 32,
-} ProteusMsgType;
+	PROTEUS_MSG_GPIO_READ = 50,
+	PROTEUS_MSG_GPIO_WRITE,
+	PROTEUS_MSG_GPIO_DIRECTION,
+
+} ProteusCommandEnum;
 
 //=============================================================================
 // Status codes
@@ -50,45 +66,69 @@ typedef enum ProteusMsgTypeE
 typedef enum ProteusStatusE
 {
 	PROTEUS_STATUS_SUCCESS = 0,
-	PROTEUS_STATUS_DEVICE_NOT_FOUND = 1,
-	PROTEUS_STATUS_WRONG_INPUT = 2,
-	PROTEUS_STATUS_COMMAND_FAILED = 3,
+	PROTEUS_STATUS_DEVICE_NOT_FOUND,
+	PROTEUS_STATUS_WRONG_INPUT,
+	PROTEUS_STATUS_COMMAND_FAILED,
+	PROTEUS_STATUS_COMMAND_NOT_FOUND,
 
-	PROTEUS_STATUS_TIMEOUT = 4,
 } ProteusStatus;
 
 //=============================================================================
 // Protocol structures (binary format)
 //=============================================================================
 
-#define BUS_ID_FIELD_SIZE           (sizeof(uint32_t))
-#define I2C_SLAVE_ADDR_FIELD_SIZE   (sizeof(uint16_t))
-
 #pragma pack(push, 1)
 
-// Header: magic (4B), msg_type (4B), sequence (4B), payload_len (4B)
+// Request Header
 typedef struct
 {
 	uint32_t magic;
-	uint32_t msg_type;
-	uint32_t sequence;
-	uint32_t payload_len;
-} ProteusHeader;
+	uint16_t command;
+	uint16_t sequence;	
+	uint16_t payloadLen;
+} ProteusReqHeader;
 
-// Footer: status (4B), reserved (4B)
+// Response Header
 typedef struct
 {
-	uint32_t status;
-	uint32_t reserved;
-} ProteusFooter;
+	uint32_t magic;
+	uint16_t status;
+	uint16_t sequence;
+	uint16_t payloadLen;
+} ProteusRespHeader;
 
-// I2C message header: addr (2B), flags (2B), len (4B)
+//=============================================================================
+// Common Defines
+//=============================================================================
+
+//=============================================================================
+// Get Buses to emulate / hook
+//=============================================================================
+
+typedef struct ProteusDeviceInfoS
+{
+	uint8_t type;
+	char name[NAME_MAX];
+}ProteusDevInfo;
+
+//=============================================================================
+// Set I2C Address
+//=============================================================================
+
+//=============================================================================
+// I2C Transaction
+//=============================================================================
+
 typedef struct
 {
 	uint16_t addr;
 	uint16_t flags;
-	uint32_t len;
+	uint16_t len;
 } ProteusI2cMsgHeader;
+
+//=============================================================================
+// SMBus Transaction
+//=============================================================================
 
 // SMBus message: read_write (1B), command (1B), size (4B), block (34B)
 #define PROTEUS_SMBUS_BLOCK_SIZE    (32 /* I2C_SMBUS_BLOCK_MAX */ + 2 /* length + pec */)
@@ -101,15 +141,25 @@ typedef struct
 	uint8_t block[PROTEUS_SMBUS_BLOCK_SIZE];
 }ProteusSMBusMsg;
 
-// SPI message header: cs (1B), mode (1B), speed (4B), bits (1B), len (4B)
+//=============================================================================
+// SPI Transaction
+//=============================================================================
+
 typedef struct
 {
-	uint8_t  cs;
-	uint8_t  mode;
-	uint32_t speed;
-	uint8_t  bits_per_word;
+	uint8_t isTx; // __u64 tx_buf;
+	uint8_t isRx; // __u64 rx_buf;
+
 	uint32_t len;
-} ProteusSpiMsgHeader;
+	uint32_t speed_hz;
+
+	uint16_t delay_usecs;
+	uint8_t bits_per_word;
+	uint8_t cs_change;
+	uint8_t tx_nbits;
+	uint8_t rx_nbits;
+	uint8_t word_delay_usecs;	
+} ProteusSpiTransferHeader;
 
 #pragma pack(pop)
 
@@ -117,15 +167,16 @@ typedef struct
 // Socket communication
 //=============================================================================
 
-void proteus_init();
 void proteus_destroy();
 
-uint32_t proteus_next_sequence();
+uint16_t proteus_next_sequence();
 
 int proteus_connect();
 void proteus_disconnect(int clientSock);
-int proteus_send_transaction(int clientSock, uint32_t msgType, uint32_t sequence,
-	const uint8_t* payload, uint32_t payloadLen);
-int proteus_recv_response(int clientSock, uint8_t* respPayload, const uint32_t expectedLen);
+
+int proteus_send_request(int clientSock, uint16_t command, uint16_t sequence,
+	const uint8_t* payload, uint16_t payloadLen);
+int proteus_recv_response(int clientSock, uint16_t expectedSequence,
+	uint8_t* payload, uint16_t payloadBufferSize, uint16_t* actualPayloadLen);
 
 #endif // PROTEUS_PROTEUS_H

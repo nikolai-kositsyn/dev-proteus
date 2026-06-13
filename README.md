@@ -9,11 +9,11 @@
 
 **dev-proteus** is a lightweight framework for emulating Linux peripheral devices using `LD_PRELOAD` technique. No kernel modules, no root privileges required.
 
-> **⚠️ Status**: I2C (including SMBus) is fully supported. SPI, UART, and GPIO support are planned for future releases.
+> **⚠️ Status**: I2C (including SMBus) and SPI are fully supported. UART and GPIO support are planned for future releases.
 
 ## Features
 
-- 🔌 **I2C/SMBus emulation** (fully working)
+- 🔌 **I2C/SMBus and SPI emulation** (fully working)
 - 🔧 **LD_PRELOAD-based hooking** - intercepts system calls transparently
 - 📝 **JSON configuration** - simple device and transaction definitions
 - 🎯 **Transparent** - applications don't know they're talking to emulated devices
@@ -43,6 +43,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_client_test
 LD_PRELOAD=./libproteus_hook.so ./i2c_eeprom_client_test
 LD_PRELOAD=./libproteus_hook.so ./i2c_smbus_client_test
 LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
+
+LD_PRELOAD=./libproteus_hook.so ./spi_client_test
+LD_PRELOAD=./libproteus_hook.so ./spi_multi_client_test
 ```
 
 ### Terminal B (Option 2): Run all test clients
@@ -55,8 +58,7 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 {
   "buses": [
     {
-      "type": "i2c",
-      "bus_id": 1,
+      "name": "/dev/i2c-1",
       "devices": [
         {
           "address": "0x51",
@@ -65,9 +67,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+    
     {
-      "type": "i2c",
-      "bus_id": 2,
+      "name": "/dev/i2c-2",
       "devices": [
         {
           "address": "0x52",
@@ -76,9 +78,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+    
     {
-      "type": "i2c",
-      "bus_id": 3,
+      "name": "/dev/i2c-3",
       "devices": [
         {
           "address": "0x53",
@@ -87,9 +89,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
         }
       ]
     },
+    
     {
-      "type": "i2c",
-      "bus_id": 4,
+      "name": "/dev/i2c-4",
       "devices": [
         {
           "address": "0x54",
@@ -101,14 +103,48 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
                 "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
                 "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
                 "delay": 10
-              },
-              {
-                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
-                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
-                "delay": 100
               }
             ]
           }
+        }
+      ]
+    },
+    
+    {
+      "name": "/dev/spidev0.0",
+      "config": {
+        "mode": 0,
+        "bits_per_word": 8,
+        "max_speed_hz": 1000000,
+        "lsb_first": 0
+      },
+      "devices": [
+        {
+          "cs": "0",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
+        }
+      ]
+    },
+    
+    {
+      "name": "/dev/spidev1.1",
+      "config": {
+        "mode": 0,
+        "bits_per_word": 8,
+        "max_speed_hz": 1000000,
+        "lsb_first": 0
+      },
+      "devices": [
+        {
+          "cs": "0",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
+        },
+        {
+          "cs": "1",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
         }
       ]
     }
@@ -117,7 +153,7 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 ```
 
 ## Hook Library and Test Clients Build Options
-### Build with defaults (127.0.0.1:4242, I2C only)
+### Build with defaults (127.0.0.1:4242, timeout=500ms, retry=3, delay=100ms)
 ```bash
 ./scripts/build_all.sh
 ```
@@ -127,9 +163,9 @@ LD_PRELOAD=./libproteus_hook.so ./i2c_multi_client_test
 PROTEUS_HOST=192.168.0.80 PROTEUS_PORT=9000 ./scripts/build_all.sh
 ```
 
-### Enable SPI and UART hooks
+### Build with custom timeout, retry and delay
 ```bash
-PROTEUS_ENABLE_SPI=1 PROTEUS_ENABLE_UART=1 ./scripts/build_all.sh
+PROTEUS_TIMEOUT_MS=100 PROTEUS_RETRY=5 PROTEUS_DELAY_MS=10 ./scripts/build_all.sh
 ```
 
 ### Build for ARM64

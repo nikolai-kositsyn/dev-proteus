@@ -1,4 +1,4 @@
-"""Protocol definitions for communication between hook library and emulator"""
+""" Protocol definitions for communication between hook library and emulator """
 
 from dataclasses import dataclass
 import struct
@@ -6,29 +6,45 @@ from enum import IntEnum
 from typing import Dict, List, Tuple
 
 # Protocol constants
-PROTEUS_MAGIC = 0x50524F54  # "PROT" in hex
-DEFAULT_PORT = 4242
-MAX_BUFFER_SIZE = 4096
+PROTEUS_MAGIC = 0x50524F54  # "PROT"
 
 
-# Message types
-class ProteusMessageType(IntEnum):
+# Commands
+class ProteusCommand(IntEnum):
+    # General
+    GET_DEVICES = 0
+
     # I2C / SMBus
-    I2C_SET_SLAVE = 0
-    I2C_TRANSACTION = 1
-    SMBUS_TRANSACTION = 2
+    I2C_SET_SLAVE = 10
+    I2C_TRANSACTION = 11
+    SMBUS_TRANSACTION = 12
 
     # SPI
-    SPI_TRANSACTION = 10
+    SPI_SET_MODE = 20
+    SPI_GET_MODE = 21
+
+    SPI_SET_BITS_PER_WORD = 22
+    SPI_GET_BITS_PER_WORD = 23
+
+    SPI_SET_MAX_SPEED_HZ = 24
+    SPI_GET_MAX_SPEED_HZ = 25
+
+    SPI_SET_LSB_FIRST = 26
+    SPI_GET_LSB_FIRST = 27
+
+    SPI_SET_MODE32 = 28
+    SPI_GET_MODE32 = 29
+
+    SPI_TRANSACTION = 30
 
     # UART
-    UART_READ = 20
-    UART_WRITE = 21
+    UART_READ = 40
+    UART_WRITE = 41
 
     # GPIO
-    GPIO_READ = 30
-    GPIO_WRITE = 31
-    GPIO_DIRECTION = 32
+    GPIO_READ = 50
+    GPIO_WRITE = 51
+    GPIO_DIRECTION = 52
 
 
 # Status codes
@@ -37,35 +53,55 @@ class ProteusStatus(IntEnum):
     DEVICE_NOT_FOUND = 1
     WRONG_INPUT = 2
     COMMAND_FAILED = 3
-    TIMEOUT = 4
+    COMMAND_NOT_FOUND = 4
 
 
 """
 Protocol structures (binary format)
 """
 
-# Header format: magic (4B), msg_type (4B), sequence (4B), payload_len (4B)
-HEADER_FORMAT = '<IIII'
-HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+# Request Header: magic (4B), cmd (2B), sequence (2B), payload_len (2B)
+REQ_HEADER_FORMAT = '<IHHH'
+REQ_HEADER_SIZE = struct.calcsize(REQ_HEADER_FORMAT)
 
-# Footer format: status (4B), reserved (4B)
-FOOTER_FORMAT = '<II'
-FOOTER_SIZE = struct.calcsize(FOOTER_FORMAT)
+# Response Header: magic (4B), status (2B), sequence (2B), payload_len (2B)
+RESP_HEADER_FORMAT = '<IHHH'
+RESP_HEADER_SIZE = struct.calcsize(RESP_HEADER_FORMAT)
 
 BUS_ID_FORMAT = '<I'
 BUS_ID_SIZE = struct.calcsize(BUS_ID_FORMAT)
+
+# Device/Bus info: type (1B), name (255B)
+DEVICE_NAME_LEN = 255
+COUNT_OF_DEVICES_FORMAT = '<H'
+DEVICE_INFO_FORMAT = '<B255s'
+DEVICE_INFO_SIZE = struct.calcsize(DEVICE_INFO_FORMAT)
 
 """
 I2C
 """
 
-# Set Slave Address: address value (2B)
-SET_I2C_SLAVE_MSG_FORMAT = '<H'
-SET_I2C_SLAVE_MSG_SIZE = struct.calcsize(SET_I2C_SLAVE_MSG_FORMAT)
+# I2C Transaction header: bus id, message count
+I2C_TRANSACTION_HEADER_FORMAT = "<II"
+I2C_TRANSACTION_HEADER_SIZE = struct.calcsize(I2C_TRANSACTION_HEADER_FORMAT)
 
-# I2C message header: addr (2B), flags (2B), len (4B)
-I2C_MSG_FORMAT = '<HHI'
-I2C_MSG_SIZE = struct.calcsize(I2C_MSG_FORMAT)
+# Set Slave Address: address value (2B)
+SET_I2C_SLAVE_CMD_FORMAT = '<H'
+SET_I2C_SLAVE_CMD_SIZE = struct.calcsize(SET_I2C_SLAVE_CMD_FORMAT)
+
+# I2C message header: addr (2B), flags (2B), len (2B)
+I2C_MSG_HEADER_FORMAT = '<HHH'
+I2C_MSG_HEADER_SIZE = struct.calcsize(I2C_MSG_HEADER_FORMAT)
+
+# I2C flags (from linux/i2c.h)
+I2C_M_RD = 0x0001
+I2C_M_TEN = 0x0010
+I2C_M_RECV_LEN = 0x0400
+I2C_M_NO_RD_ACK = 0x0800
+I2C_M_IGNORE_NAK = 0x1000
+I2C_M_REV_DIR_ADDR = 0x2000
+I2C_M_NOSTART = 0x4000
+I2C_M_STOP = 0x8000
 
 """
 SMBus
@@ -103,105 +139,84 @@ class SMBusData:
 SPI
 """
 
-# SPI message header: cs (1B), mode (1B), speed (4B), bits (1B), len (4B)
-SPI_MSG_FORMAT = '<BBIBI'
-SPI_MSG_SIZE = struct.calcsize(SPI_MSG_FORMAT)
+# SPI Transaction header: bus id, cs, transfers count
+SPI_TRANSACTION_HEADER_FORMAT = "<IBI"
+SPI_TRANSACTION_HEADER_SIZE = struct.calcsize(SPI_TRANSACTION_HEADER_FORMAT)
 
-# I2C flags (from linux/i2c.h)
-I2C_M_RD = 0x0001
-I2C_M_TEN = 0x0010
-I2C_M_RECV_LEN = 0x0400
-I2C_M_NO_RD_ACK = 0x0800
-I2C_M_IGNORE_NAK = 0x1000
-I2C_M_REV_DIR_ADDR = 0x2000
-I2C_M_NOSTART = 0x4000
-I2C_M_STOP = 0x8000
+# SPI Transfer header
+SPI_TRANSFER_HEADER_FORMAT = "<BBIIHBBBBB"
+SPI_TRANSFER_HEADER_SIZE = struct.calcsize(SPI_TRANSFER_HEADER_FORMAT)
+
+
+@dataclass
+class SpiTransfer:
+    tx_buf: bytes
+    rx_buf: bytes
+    len: int
+    speed_hz: int
+    delay_usecs: int
+    bits_per_word: int
+    cs_change: int
+    tx_nbits: int
+    rx_nbits: int
+    word_delay_usecs: int
 
 
 class ProtocolMessage:
     """Protocol message builder/parser"""
 
-    def __init__(self):
-        self.magic = PROTEUS_MAGIC
-        self.msg_type = 0
-        self.sequence = 0
-        self.payload = b''
+    """
+    General
+    """
 
     @classmethod
-    def encode(cls, msg_type: int, sequence: int, payload: bytes) -> bytes:
-        """Encode message to bytes"""
-        header = struct.pack(HEADER_FORMAT, PROTEUS_MAGIC, msg_type, sequence, len(payload))
-        return header + payload
+    def decode_bus_id(cls, req_payload: bytes) -> int:
+        """ Decode Bus Id from transaction payload """
+
+        if len(req_payload) < BUS_ID_SIZE:
+            raise ValueError("Invalid 'Bus Id' in transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        return bus_id
+
+    """
+    I2C
+    """
 
     @classmethod
-    def decode(cls, data: bytes) -> tuple:
-        """Decode message from bytes, returns (msg_type, sequence, payload)"""
-        if len(data) < HEADER_SIZE:
-            raise ValueError(f"Message too short: {len(data)} < {HEADER_SIZE}")
-
-        magic, msg_type, sequence, payload_len = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])
-
-        if magic != PROTEUS_MAGIC:
-            raise ValueError(f"Invalid magic: 0x{magic:08X}")
-
-        if len(data) < HEADER_SIZE + payload_len:
-            raise ValueError(f"Incomplete payload: expected {payload_len}, got {len(data) - HEADER_SIZE}")
-
-        payload = data[HEADER_SIZE:HEADER_SIZE + payload_len]
-
-        return msg_type, sequence, payload
-
-    @classmethod
-    def decode_set_i2c_slave(cls, payload: bytes) -> Tuple[int, int]:
+    def decode_set_i2c_slave(cls, req_payload: bytes) -> Tuple[int, int]:
         """Decode Set I2C Slave Address transaction payload"""
 
-        if len(payload) < BUS_ID_SIZE + SET_I2C_SLAVE_MSG_SIZE:
+        if len(req_payload) < BUS_ID_SIZE + SET_I2C_SLAVE_CMD_SIZE:
             raise ValueError("Invalid 'Set I2C Slave Address' transaction payload")
 
-        bus_id, = struct.unpack(BUS_ID_FORMAT, payload[:BUS_ID_SIZE])
-        slave_address, = struct.unpack(SET_I2C_SLAVE_MSG_FORMAT,
-                                       payload[BUS_ID_SIZE:BUS_ID_SIZE + SET_I2C_SLAVE_MSG_SIZE])
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        slave_address, = struct.unpack(SET_I2C_SLAVE_CMD_FORMAT,
+                                       req_payload[BUS_ID_SIZE:BUS_ID_SIZE + SET_I2C_SLAVE_CMD_SIZE])
 
         return bus_id, slave_address
 
     @classmethod
-    def encode_i2c_transaction(cls, sequence: int, messages: List) -> bytes:
-        """Encode I2C transaction with multiple messages"""
-        payload = struct.pack('<I', len(messages))  # Number of messages
+    def decode_i2c_transaction(cls, req_payload: bytes) -> Tuple[int, List]:
+        """ Decode I2C transaction payload into bus id and messages """
 
-        for msg in messages:
-            # Message header
-            payload += struct.pack(I2C_MSG_FORMAT, msg['addr'], msg['flags'], msg['len'])
-            # Write data (if not read)
-            if not (msg['flags'] & I2C_M_RD) and msg['data']:
-                payload += msg['data']
-
-        return cls.encode(ProteusMessageType.I2C_TRANSACTION, sequence, payload)
-
-    @classmethod
-    def decode_i2c_transaction(cls, payload: bytes) -> Tuple[int, List]:
-        """Decode I2C transaction payload into bus id and messages"""
-
-        MSG_COUNT_SIZE = 4
-
-        bus_id, = struct.unpack(BUS_ID_FORMAT, payload[:BUS_ID_SIZE])
-        msg_count, = struct.unpack('<I', payload[BUS_ID_SIZE: BUS_ID_SIZE + MSG_COUNT_SIZE])
+        bus_id, msg_count = struct.unpack(I2C_TRANSACTION_HEADER_FORMAT, req_payload[:I2C_TRANSACTION_HEADER_SIZE])
 
         messages = []
-        offset = BUS_ID_SIZE + MSG_COUNT_SIZE
+        offset = I2C_TRANSACTION_HEADER_SIZE
 
         for _ in range(msg_count):
-            if offset + I2C_MSG_SIZE > len(payload):
+            if offset + I2C_MSG_HEADER_SIZE > len(req_payload):
                 raise ValueError("Truncated I2C message")
 
-            addr, flags, length = struct.unpack(I2C_MSG_FORMAT, payload[offset:offset + I2C_MSG_SIZE])
-            offset += I2C_MSG_SIZE
+            addr, flags, length = struct.unpack(I2C_MSG_HEADER_FORMAT, req_payload[offset:offset + I2C_MSG_HEADER_SIZE])
+            offset += I2C_MSG_HEADER_SIZE
 
             data = b''
             if not (flags & I2C_M_RD) and length > 0:
-                if offset + length > len(payload):
+                if offset + length > len(req_payload):
                     raise ValueError("Truncated I2C write data")
-                data = payload[offset:offset + length]
+                data = req_payload[offset:offset + length]
                 offset += length
 
             messages.append({
@@ -233,3 +248,96 @@ class ProtocolMessage:
         """Encode SMBus transaction"""
         payload = struct.pack(SMBUS_MSG_FORMAT, data.read_write, data.command, data.size, data.block)
         return payload
+
+    """
+    SPI
+    """
+
+    @classmethod
+    def decode_spi_set_mode(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + 1:
+            raise ValueError("Invalid 'Set SPI Mode' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        mode, = struct.unpack("<B", req_payload[BUS_ID_SIZE:BUS_ID_SIZE + 1])
+
+        return bus_id, mode
+
+    @classmethod
+    def decode_spi_set_bits_per_word(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + 1:
+            raise ValueError("Invalid 'Set SPI Bits Per Word' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        bits_per_word, = struct.unpack("<B", req_payload[BUS_ID_SIZE:BUS_ID_SIZE + 1])
+
+        return bus_id, bits_per_word
+
+    @classmethod
+    def decode_spi_set_max_speed_hz(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + 4:
+            raise ValueError("Invalid 'Set SPI Max Speed Hz' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        max_speed_hz, = struct.unpack("<I", req_payload[BUS_ID_SIZE:BUS_ID_SIZE + 4])
+
+        return bus_id, max_speed_hz
+
+    @classmethod
+    def decode_spi_set_lsb_first(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + 1:
+            raise ValueError("Invalid 'Set SPI LSB First' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        lsb_first, = struct.unpack("<B", req_payload[BUS_ID_SIZE:BUS_ID_SIZE + 1])
+
+        return bus_id, lsb_first
+
+    @classmethod
+    def decode_spi_set_mode32(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + 4:
+            raise ValueError("Invalid 'Set SPI Mode32' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        mode32, = struct.unpack("<I", req_payload[BUS_ID_SIZE:BUS_ID_SIZE + 4])
+
+        return bus_id, mode32
+
+    @classmethod
+    def decode_spi_transaction(cls, req_payload: bytes) -> Tuple[int, int, List[SpiTransfer]]:
+        """ Decode SPI transaction payload into bus id, cs id and transfers """
+
+        bus_id, cs_id, trans_count = struct.unpack(SPI_TRANSACTION_HEADER_FORMAT,
+                                                   req_payload[:SPI_TRANSACTION_HEADER_SIZE])
+
+        transfers: List[SpiTransfer] = []
+        offset = SPI_TRANSACTION_HEADER_SIZE
+
+        for _ in range(trans_count):
+            if offset + SPI_TRANSFER_HEADER_SIZE > len(req_payload):
+                raise ValueError("Truncated SPI transaction")
+
+            is_tx, is_rx, length, speed_hz, delay_usecs, bits_per_word, cs_change, tx_nbits, rx_nbits, word_delay_usecs = struct.unpack(
+                SPI_TRANSFER_HEADER_FORMAT, req_payload[offset:offset + SPI_TRANSFER_HEADER_SIZE])
+            offset += SPI_TRANSFER_HEADER_SIZE
+
+            tx_buf = None
+            if is_tx and length > 0:
+                if offset + length > len(req_payload):
+                    raise ValueError("Truncated SPI data to write")
+                tx_buf = req_payload[offset:offset + length]
+                offset += length
+
+            rx_buf = bytes() if is_rx else None
+
+            transfers.append(SpiTransfer(tx_buf=tx_buf,
+                                         rx_buf=rx_buf,
+                                         len=length,
+                                         speed_hz=speed_hz,
+                                         delay_usecs=delay_usecs,
+                                         bits_per_word=bits_per_word,
+                                         cs_change=cs_change,
+                                         tx_nbits=tx_nbits,
+                                         rx_nbits=rx_nbits,
+                                         word_delay_usecs=word_delay_usecs))
+        return bus_id, cs_id, transfers

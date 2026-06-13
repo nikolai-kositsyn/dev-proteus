@@ -1,8 +1,7 @@
 {
   "buses": [
     {
-      "type": "i2c",
-      "bus_id": 1,
+      "name": "/dev/i2c-1",
       "devices": [
         {
           "address": "0x51",
@@ -11,10 +10,8 @@
         }
       ]
     },
-
     {
-      "type": "i2c",
-      "bus_id": 2,
+      "name": "/dev/i2c-2",
       "devices": [
         {
           "address": "0x52",
@@ -23,10 +20,8 @@
         }
       ]
     },
-
     {
-      "type": "i2c",
-      "bus_id": 3,
+      "name": "/dev/i2c-3",
       "devices": [
         {
           "address": "0x53",
@@ -35,10 +30,8 @@
         }
       ]
     },
-
     {
-      "type": "i2c",
-      "bus_id": 4,
+      "name": "/dev/i2c-4",
       "devices": [
         {
           "address": "0x54",
@@ -50,57 +43,138 @@
                 "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
                 "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
                 "delay": 10
-              },
-              {
-                "request": "7E 000000000000 0000 04 01C1 00 FFFF 00 0000 000C 00010300 0008 0000",
-                "response": "7E 000000000000 0000 00 0241 00 FFFF 00 0000 0010 00010300 0008 0064 C010232000000000",
-                "delay": 100
               }
             ]
           }
         }
       ]
     },
-
     {
-      "type": "i2c", "bus_id": 10,
-      "devices": [ { "address": "0x60", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-10",
+      "devices": [
+        {
+          "address": "0x60",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 11,
-      "devices": [ { "address": "0x61", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-11",
+      "devices": [
+        {
+          "address": "0x61",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 12,
-      "devices": [ { "address": "0x62", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-12",
+      "devices": [
+        {
+          "address": "0x62",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 13,
-      "devices": [ { "address": "0x63", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-13",
+      "devices": [
+        {
+          "address": "0x63",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 14,
-      "devices": [ { "address": "0x64", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-14",
+      "devices": [
+        {
+          "address": "0x64",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 15,
-      "devices": [ { "address": "0x65", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-15",
+      "devices": [
+        {
+          "address": "0x65",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 16,
-      "devices": [ { "address": "0x66", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-16",
+      "devices": [
+        {
+          "address": "0x66",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 17,
-      "devices": [ { "address": "0x67", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-17",
+      "devices": [
+        {
+          "address": "0x67",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 18,
-      "devices": [ { "address": "0x68", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-18",
+      "devices": [
+        {
+          "address": "0x68",
+          "class": "i2c-echo"
+        }
+      ]
     },
     {
-      "type": "i2c", "bus_id": 19,
-      "devices": [ { "address": "0x69", "class": "i2c-echo" } ]
+      "name": "/dev/i2c-19",
+      "devices": [
+        {
+          "address": "0x69",
+          "class": "i2c-echo"
+        }
+      ]
+    },
+    {
+      "name": "/dev/spidev0.0",
+      "config": {
+        "mode": 0,
+        "bits_per_word": 8,
+        "max_speed_hz": 1000000,
+        "lsb_first": 0
+      },
+      "devices": [
+        {
+          "cs": "0",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
+        }
+      ]
+    },
+    {
+      "name": "/dev/spidev1.1",
+      "config": {
+        "mode": 0,
+        "bits_per_word": 8,
+        "max_speed_hz": 1000000,
+        "lsb_first": 0
+      },
+      "devices": [
+        {
+          "cs": "0",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
+        },
+        {
+          "cs": "1",
+          "class": "spi-echo",
+          "name": "SPI Echo Device"
+        }
+      ]
     }
   ]
 }

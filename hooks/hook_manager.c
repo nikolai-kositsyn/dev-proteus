@@ -50,37 +50,28 @@ void* uart_hook_open(const char* name, int flags, ...);
 void* gpio_hook_open(const char* name, int flags, ...);
 
 //=============================================================================
-// Function pointers to original system functions
+// Internal data and function declarations
 //=============================================================================
 
-typedef int (*open_func)(const char* name, int flags, ...);
-typedef int (*close_func)(int fd);
-typedef ssize_t(*read_func)(int fd, void* buf, size_t len);
-typedef ssize_t(*write_func)(int fd, const void* buf, size_t count);
-typedef int (*ioctl_func)(int fd, unsigned long request, ...);
-
-//=============================================================================
-// Internal data
-//=============================================================================
-
-proteus_config_t g_proteus_config =
+ProteusContext g_proteusCtx =
 {
-	.emulator_host = PROTEUS_HOST,
-	.emulator_port = PROTEUS_PORT,
-	.enable_i2c = PROTEUS_ENABLE_I2C,
-	.enable_spi = PROTEUS_ENABLE_SPI,
-	.enable_uart = PROTEUS_ENABLE_UART,
-	.enable_gpio = PROTEUS_ENABLE_GPIO,
+	// Server
+	.emulatorHost = PROTEUS_HOST,
+	.emulatorPort = PROTEUS_PORT,
+	.emulatorTimeoutMs = PROTEUS_TIMEOUT_MS,
+	.emulatorRetry = PROTEUS_RETRY,
+	.emulatorDelayMs = PROTEUS_DELAY_MS,	
 };
 
-static open_func s_real_open = NULL;
-static close_func s_real_close = NULL;
-static read_func s_real_read = NULL;
-static write_func s_real_write = NULL;
-static ioctl_func s_real_ioctl = NULL;
+static int s_managerSock = -1;
+
+static ProteusDevInfo* s_fetchedDevices = NULL;
+static uint16_t s_fetchedDevicesCount = 0;
 
 static VirtualDevice* s_devices = NULL;
-static pthread_mutex_t s_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t s_devicesMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int fetch_all_devices();
 
 //=============================================================================
 // Internal functions
@@ -89,13 +80,19 @@ static pthread_mutex_t s_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
 __attribute__((constructor))
 void init_hook_manager()
 {
-	proteus_init();
+	// Set function pointers to original system functions
+	g_proteusCtx.real_open = (open_func)dlsym(RTLD_NEXT, "open");
+	g_proteusCtx.real_close = (close_func)dlsym(RTLD_NEXT, "close");
+	g_proteusCtx.real_read = (read_func)dlsym(RTLD_NEXT, "read");
+	g_proteusCtx.real_write = (write_func)dlsym(RTLD_NEXT, "write");
+	g_proteusCtx.real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");	
 
-	s_real_open = (open_func)dlsym(RTLD_NEXT, "open");
-	s_real_close = (close_func)dlsym(RTLD_NEXT, "close");
-	s_real_read = (read_func)dlsym(RTLD_NEXT, "read");
-	s_real_write = (write_func)dlsym(RTLD_NEXT, "write");
-	s_real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
+	// Connect to server and get devices to hook
+	s_managerSock = proteus_connect();
+	if (s_managerSock >= 0)
+	{
+		(void)fetch_all_devices();
+	}
 
 	PROTEUS_LOG("Initialized");
 }
@@ -103,33 +100,143 @@ void init_hook_manager()
 __attribute__((destructor))
 void destroy_hook_manager()
 {
-	proteus_destroy();
+	// Destroy fetched devices
+	if (s_fetchedDevices != NULL)
+	{
+		free((void*)s_fetchedDevices);
+		s_fetchedDevicesCount = 0;
+	}
+	
+	// Destroy virtual devices
+	pthread_mutex_lock(&s_devicesMutex);
 
-	pthread_mutex_destroy(&s_devices_mutex);
+	while (s_devices)
+	{
+		VirtualDevice* next = s_devices->next;
+		s_devices->impl_close(s_devices);
+
+		s_devices = next;
+	}
+
+	pthread_mutex_unlock(&s_devicesMutex);
+	pthread_mutex_destroy(&s_devicesMutex);
+
+	// Destroy internal client
+	if (s_managerSock >= 0)
+	{
+		proteus_disconnect(s_managerSock);
+		s_managerSock = -1;
+	}
+
+	proteus_destroy();
 
 	PROTEUS_LOG("Destroyed");
 }
 
+//=============================================================================
+// Fetch devices management
+//=============================================================================
+
+static int fetch_all_devices()
+{
+	uint8_t payload[PROTEUS_PAYLOAD_MAX_SIZE];
+	uint16_t reqPayloadLen = 0;
+
+	// Run transaction
+	uint16_t sequence = proteus_next_sequence();
+
+	if (proteus_send_request(s_managerSock, PROTEUS_CMD_GET_DEVICES, sequence, payload, reqPayloadLen) < 0)
+	{
+		return -1;
+	}
+	
+	uint16_t respPayloadLen = 0;
+	if(proteus_recv_response(s_managerSock, sequence, payload, sizeof(payload), &respPayloadLen) < 0)
+	{
+		return -1;
+	}
+
+	if (respPayloadLen > sizeof(s_fetchedDevicesCount))
+	{
+		uint16_t respPayloadOffset = 0;
+		
+		// Get count of devices
+		memcpy(&s_fetchedDevicesCount, payload + respPayloadOffset, sizeof(s_fetchedDevicesCount));
+		respPayloadOffset += sizeof(s_fetchedDevicesCount);		
+		
+		// Get devices info
+		s_fetchedDevices = (ProteusDevInfo*)malloc(s_fetchedDevicesCount * sizeof(ProteusDevInfo));
+		if (s_fetchedDevices == NULL)
+		{
+			PROTEUS_LOG("Failed to malloc when fetch devices");
+			s_fetchedDevicesCount = 0;
+			return -1;
+		}
+
+		PROTEUS_LOG("Fetched %u devices:", s_fetchedDevicesCount);
+
+		for (uint16_t idx = 0; idx < s_fetchedDevicesCount; ++idx)
+		{
+			// Fill device info
+			ProteusDevInfo* devInfo = &s_fetchedDevices[idx];
+			memcpy(devInfo, payload + respPayloadOffset, sizeof(ProteusDevInfo));
+			respPayloadOffset += sizeof(ProteusDevInfo);
+
+			const char* typeStr = "UNKNOWN";
+			switch (devInfo->type)
+			{
+				case DEV_TYPE_I2C_E: typeStr = "I2C"; break;
+				case DEV_TYPE_SPI_E: typeStr = "SPI"; break;
+				case DEV_TYPE_UART_E: typeStr = "UART"; break;
+				case DEV_TYPE_GPIO_E: typeStr = "GPIO"; break;
+			}
+
+			PROTEUS_LOG("  [%u] %s - %s", idx, devInfo->name, typeStr);
+		}
+	}
+
+	return 0;
+}
+
+static ProteusDevInfo* find_in_fetched_devices(const char* path)
+{	 
+    for (uint16_t idx = 0; idx < s_fetchedDevicesCount; ++idx)
+	{
+		ProteusDevInfo* devInfo = &s_fetchedDevices[idx];
+        if (strcmp(path, devInfo->name) == 0)
+		{			
+            return devInfo;
+        }
+    }
+
+    return NULL;
+}
+
+//=============================================================================
+// Virtual devices management
+//=============================================================================
+
 static void add_device(VirtualDevice* device)
 {
-	pthread_mutex_lock(&s_devices_mutex);
+	pthread_mutex_lock(&s_devicesMutex);
 
 	if (s_devices == NULL)
 	{
-		s_devices = device;
+		device->next = NULL;		
 	}
 	else
 	{
-		device->next = s_devices;
-		s_devices = device;
+		device->next = s_devices;		
 	}
 
-	pthread_mutex_unlock(&s_devices_mutex);
+	s_devices = device;
+
+	pthread_mutex_unlock(&s_devicesMutex);
 }
 
 static void remove_device(VirtualDevice* device)
 {
-	pthread_mutex_lock(&s_devices_mutex);
+	pthread_mutex_lock(&s_devicesMutex);
 
 	VirtualDevice* prev = NULL;
 	VirtualDevice* current = s_devices;
@@ -155,14 +262,14 @@ static void remove_device(VirtualDevice* device)
 		current = current->next;
 	}
 
-	pthread_mutex_unlock(&s_devices_mutex);
+	pthread_mutex_unlock(&s_devicesMutex);
 }
 
 static VirtualDevice* find_device_by_fd(int fd)
 {
 	VirtualDevice* result = NULL;
 
-	pthread_mutex_lock(&s_devices_mutex);
+	pthread_mutex_lock(&s_devicesMutex);
 
 	VirtualDevice* current = s_devices;
 	while (current)
@@ -176,7 +283,7 @@ static VirtualDevice* find_device_by_fd(int fd)
 		current = current->next;
 	}
 
-	pthread_mutex_unlock(&s_devices_mutex);
+	pthread_mutex_unlock(&s_devicesMutex);
 
 	return result;
 }
@@ -200,15 +307,28 @@ int open(const char* name, int flags, ...)
 
 	VirtualDevice* device = NULL;
 
-	if (PROTEUS_ENABLE_I2C & (strncmp(name, "/dev/i2c-", 9) == 0))
+	ProteusDevInfo* devInfo = find_in_fetched_devices(name);
+	if (devInfo != NULL)
 	{
-		device = (VirtualDevice*)i2c_hook_open(name, flags, mode);
+		switch (devInfo->type)
+		{
+			case DEV_TYPE_I2C_E: 
+				device = (VirtualDevice*)i2c_hook_open(name, flags, mode);
+				break;
+			case DEV_TYPE_SPI_E: 
+				device = (VirtualDevice*)spi_hook_open(name, flags, mode);
+				break;
+			case DEV_TYPE_UART_E:
+				device = (VirtualDevice*)uart_hook_open(name, flags, mode);
+				break;
+			case DEV_TYPE_GPIO_E:
+				device = (VirtualDevice*)gpio_hook_open(name, flags, mode);
+				break;
+		}
 	}
 
 	if (device != NULL)
 	{
-		(void)strncpy(device->name, name, sizeof(device->name) - 1);
-
 		// Save allocated virtual device
 		add_device(device);
 		resultFd = device->fd;
@@ -216,7 +336,7 @@ int open(const char* name, int flags, ...)
 	else
 	{
 		// Pass through to original 'open'
-		resultFd = s_real_open(name, flags, mode);
+		resultFd = g_proteusCtx.real_open(name, flags, mode);
 	}
 
 	return resultFd;
@@ -235,7 +355,7 @@ int close(int fd)
 	else
 	{
 		// Pass through to original 'close'
-		closeResult = s_real_close(fd);
+		closeResult = g_proteusCtx.real_close(fd);
 	}
 
 	return closeResult;
@@ -253,7 +373,7 @@ ssize_t read(int fd, void* buf, size_t len)
 	else
 	{
 		// Pass through to original 'read'
-		readResult = s_real_read(fd, buf, len);
+		readResult = g_proteusCtx.real_read(fd, buf, len);
 	}
 
 	return readResult;
@@ -271,7 +391,7 @@ ssize_t write(int fd, const void* buf, size_t count)
 	else
 	{
 		// Pass through to original 'write'
-		writeResult = s_real_write(fd, buf, count);
+		writeResult = g_proteusCtx.real_write(fd, buf, count);
 	}
 
 	return writeResult;
@@ -294,7 +414,7 @@ int ioctl(int fd, unsigned long request, ...)
 	else
 	{
 		// Pass through to original 'ioctl'
-		ioctlResult = s_real_ioctl(fd, request, argp);
+		ioctlResult = g_proteusCtx.real_ioctl(fd, request, argp);
 	}
 
 	return ioctlResult;

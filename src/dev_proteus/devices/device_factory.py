@@ -5,6 +5,7 @@ from dev_proteus.devices.i2c.i2c_echo import I2cEcho
 from dev_proteus.devices.i2c.i2c_custom_flow import I2cCustomFlow
 from dev_proteus.devices.i2c.i2c_eeprom import I2cEeprom
 from dev_proteus.devices.i2c.i2c_smbus import I2cSMBusDevice
+from dev_proteus.devices.spi.spi_echo import SpiEcho
 
 
 def create_device(address: str,
@@ -14,10 +15,15 @@ def create_device(address: str,
     """Factory function to create devices"""
 
     classes = {
+        # I2C
         "i2c-echo": I2cEcho,
         "i2c-eeprom": I2cEeprom,
         "i2c-custom-flow": I2cCustomFlow,
         "i2c-smbus": I2cSMBusDevice,
+
+        # SPI
+        "spi-echo": SpiEcho,
+
     }
 
     if address.startswith("0x"):

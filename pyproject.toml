@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-proteus"
-version = "0.1.1"
+version = "0.1.2"
 description = "Universal Linux Peripheral Emulator with LD_PRELOAD hook support"
 readme = "README.md"
 authors = [
-    {name = "Nikolai Kositsyn", email = "nikolai.kositsyn@gmail.com"}
+    { name = "Nikolai Kositsyn", email = "nikolai.kositsyn@gmail.com" }
 ]
-license = {text = "Apache-2.0"}
+license = { text = "Apache-2.0" }
 keywords = ["emulator", "i2c", "smbus", "spi", "uart", "gpio", "ld_preload", "embedded", "testing"]
 classifiers = [
     "Development Status :: 3 - Alpha",

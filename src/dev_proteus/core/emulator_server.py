@@ -2,11 +2,11 @@
 
 import socket
 import threading
-from typing import Dict, Optional
+from typing import Optional
 import struct
 
 from dev_proteus.core.protocol import *
-from dev_proteus.buses.bus_base import BusBase
+from dev_proteus.buses.bus_base import BusBase, DevType
 from dev_proteus.buses.i2c_bus import I2CBus
 from dev_proteus.buses.spi_bus import SPIBus
 from dev_proteus.buses.uart_bus import UARTBus
@@ -26,19 +26,10 @@ class EmulatorServer:
         self.host = host
         self.port = port
         self.config_path = config_path
-        self.buses: Dict[str, BusBase] = {}
+        self.buses: List[BusBase] = []
         self.socket: Optional[socket.socket] = None
         self.running = False
         self.logger = get_logger()
-
-        self.sequence_counter = 0
-        self._sequence_lock = threading.Lock()
-
-    def _next_sequence(self) -> int:
-        """Get next sequence number"""
-        with self._sequence_lock:
-            self.sequence_counter += 1
-            return self.sequence_counter
 
     def load_config(self) -> None:
         """Load configuration from JSON file"""
@@ -49,25 +40,35 @@ class EmulatorServer:
         config = load_config(self.config_path)
 
         for bus_item in config.get('buses', []):
-            bus_type = bus_item.get('type')
-            bus_id = bus_item.get('bus_id')
+            bus_name = bus_item.get('name')
+            bus_config = bus_item.get('config', {})
 
-            if bus_type == 'i2c':
-                bus = I2CBus(bus_id)
-            elif bus_type == 'spi':
-                bus = SPIBus(bus_id, bus_item.get('config', {}))
-            elif bus_type == 'uart':
-                bus = UARTBus(bus_item.get('port', 'ttyS0'), bus_item.get('config', {}))
-            elif bus_type == 'gpio':
-                bus = GPIOBus(bus_item.get('chip', 0))
+            if "i2c" in bus_name:
+                bus = I2CBus(bus_name, bus_config)
+
+            elif "spi" in bus_name:
+                bus = SPIBus(bus_name, bus_config)
+
+            elif "tty" in bus_name:
+                bus = UARTBus(bus_name, bus_config)
+
+            elif "gpiochip" in bus_name:
+                bus = GPIOBus(bus_name, bus_config)
+
             else:
-                self.logger.warning(f"Unknown bus type: {bus_type}")
+                self.logger.warning(f"Unsupported device: {bus_name}")
                 continue
 
             # Register devices on bus
             for device_item in bus_item.get('devices', []):
 
-                device_address = device_item.get('address') or device_item.get('cs') or device_item.get('pin')
+                if bus.type == DevType.I2C:
+                    device_address = device_item.get('address')
+                elif bus.type == DevType.SPI:
+                    device_address = device_item.get('cs')
+                else:
+                    device_address = device_item.get('pin')
+
                 device_class = device_item.get('class')
                 device_name = device_item.get('name')
                 if not device_name:
@@ -80,12 +81,12 @@ class EmulatorServer:
                     bus.register_device(device)
 
                     self.logger.info(
-                        f"Registered class='{device_class}', '{device_name}' at {device_address} on {bus_type} bus {bus_id}")
+                        f"Registered class='{device_class}', '{device_name}' at {device_address} on {bus.name}")
 
                 except Exception as e:
                     self.logger.error(f"Failed to register device: {e}")
 
-            self.buses[bus.name] = bus
+            self.buses.append(bus)
 
     def start(self) -> None:
         """Start the emulator server"""
@@ -112,32 +113,36 @@ class EmulatorServer:
                     self.logger.error(f"Accept error: {e}")
 
     def _handle_client(self, client_socket: socket.socket, client_addr) -> None:
-        """Handle connected client"""
+        """ Handle connected client """
         try:
 
             self.logger.info(f"Client connected {client_addr}")
 
             while True:
-                # Read message header               
-
-                header_data = self._recv_exact(client_socket, HEADER_SIZE)
-                if not header_data:
+                # Request header
+                req_header = self._recv_exact(client_socket, REQ_HEADER_SIZE)
+                if not req_header:
                     break
 
-                magic, msg_type, sequence, payload_len = struct.unpack(HEADER_FORMAT, header_data)
+                magic, command, sequence, req_payload_len = struct.unpack(REQ_HEADER_FORMAT, req_header)
+                if magic != PROTEUS_MAGIC:
+                    raise Exception(f"Unexpected magic number: 0x{magic:08X}")
 
-                # Read message payload
-                payload = b''
-                if payload_len > 0:
-                    payload = self._recv_exact(client_socket, payload_len)
-                    if payload is None:
+                # Request payload
+                req_payload = b''
+                if req_payload_len > 0:
+                    req_payload = self._recv_exact(client_socket, req_payload_len)
+                    if req_payload is None:
                         break
 
-                # Process message
-                response_data = self._process_message(msg_type, sequence, payload)
+                # Handle command
+                status, resp_payload = self._handle_command(command, req_payload)
 
-                # Send response
-                client_socket.send(response_data)
+                # Response header
+                resp_header = struct.pack(RESP_HEADER_FORMAT, magic, status, sequence, len(resp_payload))
+
+                # Send full response message
+                client_socket.send(resp_header + resp_payload)
 
         except Exception as e:
             self.logger.error(f"Client handling error: {e}")
@@ -145,63 +150,173 @@ class EmulatorServer:
             client_socket.close()
             self.logger.info(f"Client closed {client_addr}")
 
-    def _process_message(self, msg_type: int, sequence: int, payload: bytes) -> bytes:
-        """Process incoming message and return response"""
+    def _find_by_type_and_id(self, target_type: DevType, target_id: int) -> Optional[BusBase]:
+        for bus in self.buses:
+            if bus.type == target_type and bus.id == target_id:
+                return bus
+        return None
+
+    def _handle_command(self, command: int, req_payload: bytes) -> Tuple[ProteusStatus, bytes]:
+        """ Handle incoming client command and return status and result bytes """
+
+        status = ProteusStatus.SUCCESS
+        resp_payload = b''
+
         try:
-            if msg_type == ProteusMessageType.I2C_SET_SLAVE:
-                bus_id, slave_address = ProtocolMessage.decode_set_i2c_slave(payload)
+            #####################################################
+            # General
+            #####################################################
+            if command == ProteusCommand.GET_DEVICES:
+                # Get all devices                
+                data_bytes = bytearray()
 
-                # Handle set I2C slave address
-                status = ProteusStatus.SUCCESS
+                # Count of devices
+                data_bytes.extend(struct.pack(COUNT_OF_DEVICES_FORMAT, len(self.buses)))
 
-                bus = self.buses.get(f"i2c-{bus_id}")
+                # Devices info
+                for bus in self.buses:
+                    data_bytes.extend(struct.pack(DEVICE_INFO_FORMAT,
+                                                  bus.type, bus.name.encode('ascii')[:DEVICE_NAME_LEN]))
+                resp_payload = bytes(data_bytes)
+
+
+            #####################################################
+            # I2C
+            #####################################################
+            elif command == ProteusCommand.I2C_SET_SLAVE:
+                bus_id, slave_address = ProtocolMessage.decode_set_i2c_slave(req_payload)
+
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
                     bus.set_slave_address(slave_address)
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                return struct.pack(FOOTER_FORMAT, status, 0)
+            elif command == ProteusCommand.I2C_TRANSACTION:
+                bus_id, messages = ProtocolMessage.decode_i2c_transaction(req_payload)
 
-            elif msg_type == ProteusMessageType.I2C_TRANSACTION:
-                bus_id, messages = ProtocolMessage.decode_i2c_transaction(payload)
-
-                # Handle I2C transaction
-                status = ProteusStatus.SUCCESS
-                read_data = b''
-
-                bus = self.buses.get(f"i2c-{bus_id}")
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
-                    read_data = bus.transaction(messages)
+                    resp_payload = bus.transaction(messages)
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                return struct.pack(FOOTER_FORMAT, status, 0) + read_data
+            elif command == ProteusCommand.SMBUS_TRANSACTION:
+                bus_id, smbus_request = ProtocolMessage.decode_smbus_transaction(req_payload)
 
-            elif msg_type == ProteusMessageType.SMBUS_TRANSACTION:
-                bus_id, smbus_request = ProtocolMessage.decode_smbus_transaction(payload)
-
-                # Handle SMBus transaction
-                status = ProteusStatus.SUCCESS
-                response_bytes = b''
-
-                bus = self.buses.get(f"i2c-{bus_id}")
+                bus = self._find_by_type_and_id(DevType.I2C, bus_id)
                 if bus:
                     smbus_response = bus.smbus_transaction(smbus_request)
                     if smbus_response:
-                        response_bytes = ProtocolMessage.encode_smbus_transaction(smbus_response)
+                        resp_payload = ProtocolMessage.encode_smbus_transaction(smbus_response)
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
-                # Footer with status and optional response bytes
-                return struct.pack(FOOTER_FORMAT, status, 0) + response_bytes
+            #####################################################
+            # SPI
+            #####################################################
+            elif command == ProteusCommand.SPI_SET_MODE:
+                bus_id, mode = ProtocolMessage.decode_spi_set_mode(req_payload)
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    bus.mode = mode
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_GET_MODE:
+                bus = self._find_by_type_and_id(DevType.SPI,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<B", bus.mode)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_SET_BITS_PER_WORD:
+                bus_id, bits_per_word = ProtocolMessage.decode_spi_set_bits_per_word(req_payload)
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    bus.bits_per_word = bits_per_word
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_GET_BITS_PER_WORD:
+                bus = self._find_by_type_and_id(DevType.SPI,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<B", bus.bits_per_word)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_SET_MAX_SPEED_HZ:
+                bus_id, max_speed_hz = ProtocolMessage.decode_spi_set_max_speed_hz(req_payload)
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    bus.max_speed_hz = max_speed_hz
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_GET_MAX_SPEED_HZ:
+                bus = self._find_by_type_and_id(DevType.SPI,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<I", bus.max_speed_hz)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_SET_LSB_FIRST:
+                bus_id, lsb_first = ProtocolMessage.decode_spi_set_lsb_first(req_payload)
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    bus.lsb_first = lsb_first
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_GET_LSB_FIRST:
+                bus = self._find_by_type_and_id(DevType.SPI,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<B", bus.lsb_first)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_SET_MODE32:
+                bus_id, mode32 = ProtocolMessage.decode_spi_set_mode32(req_payload)
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    bus.mode = mode32
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_GET_MODE32:
+                bus = self._find_by_type_and_id(DevType.SPI,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<I", bus.mode)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.SPI_TRANSACTION:
+                bus_id, cs_id, transfers = ProtocolMessage.decode_spi_transaction(req_payload)
+
+                bus = self._find_by_type_and_id(DevType.SPI, bus_id)
+                if bus:
+                    if bus.get_device(cs_id):
+                        context = {"cs": cs_id, "transfers": transfers}
+                        resp_payload = bus.transaction(context)
+                    else:
+                        status = ProteusStatus.DEVICE_NOT_FOUND
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
 
             else:
-                self.logger.warning(f"Unsupported message: {msg_type}")
-                return struct.pack(FOOTER_FORMAT, ProteusStatus.WRONG_INPUT, 0)
+                self.logger.warning(f"Unsupported command: {command}")
+                status = ProteusStatus.COMMAND_NOT_FOUND
 
         except Exception as e:
-            self.logger.error(f"Error processing message: {e}")
-            return struct.pack(FOOTER_FORMAT, ProteusStatus.COMMAND_FAILED, 0)
+            self.logger.error(f"Failed to handle command: {e}")
+            status = ProteusStatus.COMMAND_FAILED
+
+        return status, resp_payload
 
     def _recv_exact(self, sock: socket.socket, size: int) -> Optional[bytes]:
         """Receive exact number of bytes"""

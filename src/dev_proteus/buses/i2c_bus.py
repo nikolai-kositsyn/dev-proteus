@@ -1,16 +1,20 @@
 """ I2C bus implementation """
 
+import re
 from typing import List, Dict, Optional
-from dev_proteus.buses.bus_base import BusBase
+from dev_proteus.buses.bus_base import BusBase, DevType
 from dev_proteus.core.protocol import SMBusData
 
 
 class I2CBus(BusBase):
     """ I2C bus emulation """
 
-    def __init__(self, bus_id: int):
-        super().__init__(f"i2c-{bus_id}")
-        self.bus_id = bus_id
+    def __init__(self, name: str, config: Optional[Dict] = None):
+        super().__init__(name=name)
+
+        self.type = DevType.I2C
+        self.id = int(re.search(r'/dev/i2c-(\d+)', name).group(1))
+
         self._slave_address = 0
 
     def set_slave_address(self, slave_address: int) -> None:

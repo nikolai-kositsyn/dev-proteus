@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <linux/limits.h> // NAME_MAX
 
 #include "config.h"
 
@@ -15,21 +16,21 @@
  // Base Virtual Device
  //=============================================================================
 
-typedef enum DeviceTypeE
+typedef enum DevTypeE
 {
 	DEV_TYPE_I2C_E = 0,
 	DEV_TYPE_SPI_E,
 	DEV_TYPE_UART_E,
 	DEV_TYPE_GPIO_E,
 
-	DEV_TYPE_MAX_E = 0xFF, // Keep it last
-}DeviceTypeEnum;
+	DEV_TYPE_MAX_E, // Keep it last
+}DevTypeEnum;
 
 typedef struct VirtualDeviceS
 {
-	DeviceTypeEnum type;
+	DevTypeEnum type;
 	int fd;
-	char name[FILENAME_MAX];
+	char name[NAME_MAX];
 	uint32_t id;
 
 	int clientSock;
@@ -43,24 +44,38 @@ typedef struct VirtualDeviceS
 } VirtualDevice;
 
 //=============================================================================
-// Configuration
+// Context
 //=============================================================================
 
-typedef struct
+// Function pointers to original system functions
+typedef int (*open_func)(const char* name, int flags, ...);
+typedef int (*close_func)(int fd);
+typedef ssize_t(*read_func)(int fd, void* buf, size_t len);
+typedef ssize_t(*write_func)(int fd, const void* buf, size_t count);
+typedef int (*ioctl_func)(int fd, unsigned long request, ...);
+
+typedef struct ProteusContextS
 {
-	char emulator_host[FILENAME_MAX];
-	int emulator_port;
-	int enable_i2c;
-	int enable_spi;
-	int enable_uart;
-	int enable_gpio;
-} proteus_config_t;
+	// Server
+	char emulatorHost[NAME_MAX];
+	int emulatorPort;
+	int emulatorTimeoutMs;
+	int emulatorRetry;
+	int emulatorDelayMs;
+
+	// Original functions
+	open_func real_open;
+	close_func real_close;
+	read_func real_read;
+	write_func real_write;
+	ioctl_func real_ioctl;
+} ProteusContext;
 
 //=============================================================================
-// Global configuration (defined in hook_manager.c)
+// Global context (defined in hook_manager.c)
 //=============================================================================
 
-extern proteus_config_t g_proteus_config;
+extern ProteusContext g_proteusCtx;
 
 //=============================================================================
 // Utility functions
