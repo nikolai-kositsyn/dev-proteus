@@ -28,16 +28,22 @@ else
     LDFLAGS = $(COMMON_LDFLAGS) $(RELEASE_LDFLAGS)
 endif
 
-# Clients
+# I2C Clients
 I2C_CLIENT = i2c_client_test
 I2C_EEPROM_CLIENT = i2c_eeprom_client_test
 I2C_SMBUS_CLIENT = i2c_smbus_client_test
 I2C_MULTI_CLIENT = i2c_multi_client_test
 
+# SPI Clients
+SPI_CLIENT = spi_client_test
+SPI_MULTI_CLIENT = spi_multi_client_test
+
 ALL_CLIENTS = $(I2C_CLIENT) \
               $(I2C_EEPROM_CLIENT) \
               $(I2C_SMBUS_CLIENT) \
-              $(I2C_MULTI_CLIENT)
+              $(I2C_MULTI_CLIENT) \
+			  $(SPI_CLIENT) \
+			  $(SPI_MULTI_CLIENT)
 
 .PHONY: all clean debug release help
 

@@ -49,16 +49,16 @@ typedef struct I2cDeviceS
 static int set_i2c_slave(I2cDevice* bus, uint16_t slaveAddress)
 {
 	// Build payload
-	uint8_t payload[BUS_ID_FIELD_SIZE + I2C_SLAVE_ADDR_FIELD_SIZE];
+	uint8_t payload[sizeof(bus->base.id) + sizeof(slaveAddress)];
 	uint16_t offset = 0;
 
 	// Bus Id
-	memcpy(payload + offset, &bus->base.id, BUS_ID_FIELD_SIZE);
-	offset += BUS_ID_FIELD_SIZE;
+	memcpy(payload + offset, &bus->base.id, sizeof(bus->base.id));
+	offset += sizeof(bus->base.id);
 
 	// Slave Address
-	memcpy(payload + offset, &slaveAddress, I2C_SLAVE_ADDR_FIELD_SIZE);
-	offset += I2C_SLAVE_ADDR_FIELD_SIZE;
+	memcpy(payload + offset, &slaveAddress, sizeof(slaveAddress));
+	offset += sizeof(slaveAddress);
 
 	// Run transaction
 	uint16_t sequence = proteus_next_sequence();
@@ -94,11 +94,9 @@ static void apply_i2c_read_data(struct i2c_rdwr_ioctl_data* i2cData,
 
 static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 {
-#define NUM_OF_MSG_FIELD_SIZE   (4)
-
 	// Calculate request payload size
-	uint16_t reqPayloadLen = BUS_ID_FIELD_SIZE; // Bus id
-	reqPayloadLen += NUM_OF_MSG_FIELD_SIZE; // Messages count
+	uint16_t reqPayloadLen = sizeof(bus->base.id); // Bus id
+	reqPayloadLen += sizeof(data->nmsgs); // Messages count
 
 	for (uint32_t i = 0; i < data->nmsgs; ++i)
 	{
@@ -109,25 +107,25 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 		}
 	}
 
-	if (reqPayloadLen > PROTEUS_MAX_PAYLOAD)
+	if (reqPayloadLen > PROTEUS_PAYLOAD_MAX_SIZE)
 	{
-		PROTEUS_LOG("I2C transaction payload too large: %u bytes", reqPayloadLen);
+		PROTEUS_LOG("Request payload too large: %u > %u", reqPayloadLen, PROTEUS_PAYLOAD_MAX_SIZE);
 
 		errno = EFBIG;
 		return -1;
 	}
 
 	// Build request payload
-	uint8_t payload[PROTEUS_MAX_PAYLOAD];
+	uint8_t payload[PROTEUS_PAYLOAD_MAX_SIZE];
 	uint16_t offset = 0;
 
 	// Bus id
-	memcpy(payload + offset, &bus->base.id, BUS_ID_FIELD_SIZE);
-	offset += BUS_ID_FIELD_SIZE;
+	memcpy(payload + offset, &bus->base.id, sizeof(bus->base.id));
+	offset += sizeof(bus->base.id);
 
 	// Messages count
-	memcpy(payload + offset, &data->nmsgs, NUM_OF_MSG_FIELD_SIZE);
-	offset += NUM_OF_MSG_FIELD_SIZE;
+	memcpy(payload + offset, &data->nmsgs, sizeof(data->nmsgs));
+	offset += sizeof(data->nmsgs);
 
 	// Messages
 	for (uint32_t i = 0; i < data->nmsgs; ++i)
@@ -173,13 +171,13 @@ static int run_i2c_transaction(I2cDevice* bus, struct i2c_rdwr_ioctl_data* data)
 static int run_smbus_transaction(I2cDevice* bus, struct i2c_smbus_ioctl_data* smbusData)
 {
 	// Build payload
-	uint8_t payload[BUS_ID_FIELD_SIZE + sizeof(ProteusSMBusMsg)];
+	uint8_t payload[sizeof(bus->base.id) + sizeof(ProteusSMBusMsg)];
 	uint16_t offset = 0;
 	int result = 0;
 
 	// Bus id
-	memcpy(payload + offset, &bus->base.id, BUS_ID_FIELD_SIZE);
-	offset += BUS_ID_FIELD_SIZE;
+	memcpy(payload + offset, &bus->base.id, sizeof(bus->base.id));
+	offset += sizeof(bus->base.id);
 
 	// SMBus message
 	ProteusSMBusMsg* msg = (ProteusSMBusMsg*)&payload[offset];

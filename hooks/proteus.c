@@ -218,10 +218,10 @@ int proteus_recv_response(int clientSock, uint16_t expectedSequence,
 	}
 	break;
 
-	case PROTEUS_STATUS_TIMEOUT:
+	case PROTEUS_STATUS_COMMAND_NOT_FOUND:
 	{
-		statusStr = "TIMEOUT";
-		errno = ETIMEDOUT;
+		statusStr = "COMMAND_NOT_FOUND";
+		errno = EINVAL;
 	}
 	break;
 

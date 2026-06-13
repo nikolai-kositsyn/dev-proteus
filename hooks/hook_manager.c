@@ -139,7 +139,7 @@ void destroy_hook_manager()
 
 static int fetch_all_devices()
 {
-	uint8_t payload[PROTEUS_MAX_PAYLOAD];
+	uint8_t payload[PROTEUS_PAYLOAD_MAX_SIZE];
 	uint16_t reqPayloadLen = 0;
 
 	// Run transaction

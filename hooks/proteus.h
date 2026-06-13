@@ -13,8 +13,8 @@
  // Protocol constants
  //=============================================================================
 
-#define PROTEUS_MAGIC       (0x50524F54)  // "PROT"
-#define PROTEUS_MAX_PAYLOAD	(4096)
+#define PROTEUS_MAGIC       		(0x50524F54)	// "PROT"
+#define PROTEUS_PAYLOAD_MAX_SIZE	(8 * 1024)		// 8KB max
 
 //=============================================================================
 // Commands
@@ -31,14 +31,29 @@ typedef enum ProteusCommandE
 	PROTEUS_CMD_SMBUS_TRANSACTION,
 
 	// SPI
-	PROTEUS_MSG_SPI_TRANSACTION = 20,
+	PROTEUS_CMD_SPI_SET_MODE = 20,
+	PROTEUS_CMD_SPI_GET_MODE,
+
+	PROTEUS_CMD_SPI_SET_BITS_PER_WORD,
+    PROTEUS_CMD_SPI_GET_BITS_PER_WORD,
+
+    PROTEUS_CMD_SPI_SET_MAX_SPEED_HZ,
+    PROTEUS_CMD_SPI_GET_MAX_SPEED_HZ,
+
+    PROTEUS_CMD_SPI_SET_LSB_FIRST,
+    PROTEUS_CMD_SPI_GET_LSB_FIRST,
+
+    PROTEUS_CMD_SPI_SET_MODE32,
+    PROTEUS_CMD_SPI_GET_MODE32,
+
+    PROTEUS_CMD_SPI_TRANSACTION,	
 
 	// UART
-	PROTEUS_MSG_UART_READ = 30,
+	PROTEUS_MSG_UART_READ = 40,
 	PROTEUS_MSG_UART_WRITE,
 
 	// GPIO
-	PROTEUS_MSG_GPIO_READ = 40,
+	PROTEUS_MSG_GPIO_READ = 50,
 	PROTEUS_MSG_GPIO_WRITE,
 	PROTEUS_MSG_GPIO_DIRECTION,
 
@@ -51,11 +66,11 @@ typedef enum ProteusCommandE
 typedef enum ProteusStatusE
 {
 	PROTEUS_STATUS_SUCCESS = 0,
-	PROTEUS_STATUS_DEVICE_NOT_FOUND = 1,
-	PROTEUS_STATUS_WRONG_INPUT = 2,
-	PROTEUS_STATUS_COMMAND_FAILED = 3,
+	PROTEUS_STATUS_DEVICE_NOT_FOUND,
+	PROTEUS_STATUS_WRONG_INPUT,
+	PROTEUS_STATUS_COMMAND_FAILED,
+	PROTEUS_STATUS_COMMAND_NOT_FOUND,
 
-	PROTEUS_STATUS_TIMEOUT = 4,
 } ProteusStatus;
 
 //=============================================================================
@@ -86,8 +101,6 @@ typedef struct
 // Common Defines
 //=============================================================================
 
-#define BUS_ID_FIELD_SIZE           (sizeof(uint32_t))
-
 //=============================================================================
 // Get Buses to emulate / hook
 //=============================================================================
@@ -101,8 +114,6 @@ typedef struct ProteusDeviceInfoS
 //=============================================================================
 // Set I2C Address
 //=============================================================================
-
-#define I2C_SLAVE_ADDR_FIELD_SIZE   (sizeof(uint16_t))
 
 //=============================================================================
 // I2C Transaction
@@ -136,12 +147,19 @@ typedef struct
 
 typedef struct
 {
-	uint8_t  cs;
-	uint8_t  mode;
-	uint32_t speed;
-	uint8_t  bits_per_word;
+	uint8_t isTx; // __u64 tx_buf;
+	uint8_t isRx; // __u64 rx_buf;
+
 	uint32_t len;
-} ProteusSpiMsgHeader;
+	uint32_t speed_hz;
+
+	uint16_t delay_usecs;
+	uint8_t bits_per_word;
+	uint8_t cs_change;
+	uint8_t tx_nbits;
+	uint8_t rx_nbits;
+	uint8_t word_delay_usecs;	
+} ProteusSpiTransferHeader;
 
 #pragma pack(pop)
 

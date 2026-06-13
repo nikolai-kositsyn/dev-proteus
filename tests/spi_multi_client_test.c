@@ -6,19 +6,16 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <linux/i2c.h>
-#include <linux/i2c-dev.h>
+#include <linux/spi/spidev.h>
 
-#define NUM_CLIENTS 10
-#define I2C_BUS_START 10
-#define I2C_ADDR_START 0x60
+#define NUM_CLIENTS		(2)
+#define SPI_BUS_START	(0)
+#define SPI_CS_START	(0)
 
-#define TEST_DATA_SIZE 4
-
-typedef struct {
+typedef struct 
+{
 	int client_id;
 	char dev_name[32];
-	int slave_addr;
 	uint32_t unique_id;
 } client_data_t;
 
@@ -29,16 +26,16 @@ uint32_t generate_unique_id(int client_id) {
 
 void* client_thread(void* arg) {
 	client_data_t* data = (client_data_t*)arg;
-	uint8_t write_buffer[TEST_DATA_SIZE];
-	uint8_t read_buffer[TEST_DATA_SIZE];
+	uint8_t write_buffer[sizeof(uint32_t)];
+	uint8_t read_buffer[sizeof(uint32_t)];
 
 	write_buffer[0] = (data->unique_id >> 0) & 0xFF;
 	write_buffer[1] = (data->unique_id >> 8) & 0xFF;
 	write_buffer[2] = (data->unique_id >> 16) & 0xFF;
 	write_buffer[3] = (data->unique_id >> 24) & 0xFF;
 
-	printf("[Client %d] Starting on %s (0x%02X), ID=0x%08X\n",
-		data->client_id, data->dev_name, data->slave_addr, data->unique_id);
+	printf("[Client %d] Starting on %s, ID=0x%08X\n",
+		data->client_id, data->dev_name, data->unique_id);
 
 	// Open device
 	int fd = open(data->dev_name, O_RDWR);
@@ -49,21 +46,14 @@ void* client_thread(void* arg) {
 	printf("[Client %d] Opened %s, fd=%d\n", data->client_id, data->dev_name, fd);
 
 	// Write unique ID to echo device
-	struct i2c_msg write_msgs[] = {
-		{
-			.addr = data->slave_addr,
-			.flags = 0,  // Write
-			.len = TEST_DATA_SIZE,
-			.buf = write_buffer
-		}
+	struct spi_ioc_transfer write_trans = 
+	{
+		.tx_buf = (unsigned long)write_buffer,
+        .rx_buf = (unsigned long)0,
+        .len = sizeof(write_buffer),
 	};
 
-	struct i2c_rdwr_ioctl_data write_trans = {
-		.msgs = write_msgs,
-		.nmsgs = 1
-	};
-
-	int ret = ioctl(fd, I2C_RDWR, &write_trans);
+	int ret = ioctl(fd, SPI_IOC_MESSAGE(1), &write_trans);
 	if (ret < 0) {
 		printf("[Client %d] ❌ Write failed!\n", data->client_id);
 		close(fd);
@@ -72,21 +62,14 @@ void* client_thread(void* arg) {
 	printf("[Client %d] Wrote ID: 0x%08X\n", data->client_id, data->unique_id);
 
 	// Read back from echo device
-	struct i2c_msg read_msgs[] = {
-		{
-			.addr = data->slave_addr,
-			.flags = I2C_M_RD,  // Read
-			.len = TEST_DATA_SIZE,
-			.buf = read_buffer
-		}
+	struct spi_ioc_transfer read_trans = 
+	{
+		.tx_buf = (unsigned long)0,
+        .rx_buf = (unsigned long)read_buffer,
+        .len = sizeof(read_buffer),
 	};
 
-	struct i2c_rdwr_ioctl_data read_trans = {
-		.msgs = read_msgs,
-		.nmsgs = 1
-	};
-
-	ret = ioctl(fd, I2C_RDWR, &read_trans);
+	ret = ioctl(fd, SPI_IOC_MESSAGE(1), &read_trans);
 	if (ret < 0) {
 		printf("[Client %d] ❌ Read failed!\n", data->client_id);
 		close(fd);
@@ -121,16 +104,16 @@ int main() {
 	int fail_count = 0;
 
 	printf("===========================================================\n");
-	printf("I2C Multi-Threaded Echo Test\n");	
-	printf("Using i2c-echo devices (no address, just echo)\n");
+	printf("SPI Multi-Threaded Echo Test\n");	
+	printf("Using spi-echo devices (no address, just echo)\n");
 	printf("===========================================================\n\n");
 
 	// Create client data and generate unique IDs
-	for (int i = 0; i < NUM_CLIENTS; i++) {
+	for (int i = 0; i < NUM_CLIENTS; i++) 
+	{
 		clients_data[i].client_id = i + 1;
 		snprintf(clients_data[i].dev_name, sizeof(clients_data[i].dev_name),
-			"/dev/i2c-%d", I2C_BUS_START + i);
-		clients_data[i].slave_addr = I2C_ADDR_START + i;
+			"/dev/spidev%d.%d", SPI_BUS_START + i, SPI_CS_START + i);
 		clients_data[i].unique_id = generate_unique_id(i + 1);
 	}
 

@@ -63,6 +63,9 @@ run_test "i2c_eeprom_client_test" "i2c_eeprom_client_test" "/dev/i2c-2" "0x52"
 run_test "i2c_smbus_client_test" "i2c_smbus_client_test" "/dev/i2c-3" "0x53"
 run_test "i2c_multi_client_test" "i2c_multi_client_test"
 
+run_test "spi_client_test" "spi_client_test" "/dev/spidev0.0"
+run_test "spi_multi_client_test" "spi_multi_client_test"
+
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
