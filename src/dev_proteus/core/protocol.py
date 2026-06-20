@@ -38,8 +38,13 @@ class ProteusCommand(IntEnum):
     SPI_TRANSACTION = 30
 
     # UART
-    UART_READ = 40
-    UART_WRITE = 41
+    UART_SET_TERMIOS = 40
+    UART_GET_TERMIOS = 41
+    UART_SET_MODEM = 42
+    UART_GET_MODEM = 43
+    UART_READ = 44
+    UART_WRITE = 45
+    UART_GET_AVAILABLE_BYTES = 46
 
     # GPIO
     GPIO_READ = 50
@@ -160,6 +165,33 @@ class SpiTransfer:
     tx_nbits: int
     rx_nbits: int
     word_delay_usecs: int
+
+
+"""
+UART
+"""
+
+# UART set/get termios
+UART_TERMIOS_FORMAT = "<IIIIB3x32sII" # 60 bytes
+UART_TERMIOS_SIZE = struct.calcsize(UART_TERMIOS_FORMAT)
+
+UART_MODEM_FORMAT = "<I"
+UART_MODEM_SIZE = struct.calcsize(UART_MODEM_FORMAT)
+
+UART_RW_SIZE_FORMAT = "<H"
+UART_RW_SIZE_SIZE = struct.calcsize(UART_RW_SIZE_FORMAT)
+
+
+@dataclass
+class UartTermios:    
+    c_iflag: int
+    c_oflag: int
+    c_cflag: int
+    c_lflag: int
+    c_line: int
+    c_cc: bytes
+    c_ispeed: int
+    c_ospeed: int
 
 
 class ProtocolMessage:
@@ -341,3 +373,63 @@ class ProtocolMessage:
                                          rx_nbits=rx_nbits,
                                          word_delay_usecs=word_delay_usecs))
         return bus_id, cs_id, transfers
+    
+    """
+    UART
+    """
+
+    @classmethod
+    def decode_uart_set_termios(cls, req_payload: bytes) -> Tuple[int, UartTermios]:
+        if len(req_payload) < BUS_ID_SIZE + UART_TERMIOS_SIZE:
+            raise ValueError("Invalid 'Set UART termios' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        c_iflag, c_oflag, c_cflag, c_lflag, c_line, c_cc, c_ispeed, c_ospeed, = struct.unpack(UART_TERMIOS_FORMAT, 
+                                                                                      req_payload[BUS_ID_SIZE:BUS_ID_SIZE + UART_TERMIOS_SIZE])
+
+        return bus_id, UartTermios(c_iflag=c_iflag, c_oflag=c_oflag, c_cflag=c_cflag, c_lflag=c_lflag,
+                                   c_line=c_line, c_cc=c_cc,
+                                   c_ispeed=c_ispeed, c_ospeed=c_ospeed)
+    
+    @classmethod
+    def encode_uart_termios(cls, termios: UartTermios) -> bytes:
+        payload = struct.pack(UART_TERMIOS_FORMAT,
+                              termios.c_iflag, termios.c_oflag, termios.c_cflag, termios.c_lflag,
+                              termios.c_line, termios.c_cc,
+                              termios.c_ispeed, termios.c_ospeed)
+        return payload
+
+    @classmethod
+    def decode_uart_set_modem(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + UART_MODEM_SIZE:
+            raise ValueError("Invalid 'Set UART modem' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        status, = struct.unpack(UART_MODEM_FORMAT, req_payload[BUS_ID_SIZE:BUS_ID_SIZE + UART_MODEM_SIZE])
+
+        return bus_id, status
+    
+    @classmethod
+    def encode_uart_modem(cls, status: int) -> bytes:
+        payload = struct.pack(UART_MODEM_FORMAT, status)
+        return payload
+    
+    @classmethod
+    def decode_uart_write(cls, req_payload: bytes) -> Tuple[int, bytes]:
+        if len(req_payload) < BUS_ID_SIZE:
+            raise ValueError("Invalid 'Write UART data' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        data_to_write = req_payload[BUS_ID_SIZE:]
+
+        return bus_id, data_to_write
+    
+    @classmethod
+    def decode_uart_read(cls, req_payload: bytes) -> Tuple[int, int]:
+        if len(req_payload) < BUS_ID_SIZE + UART_RW_SIZE_SIZE:
+            raise ValueError("Invalid 'Read UART data' transaction payload")
+
+        bus_id, = struct.unpack(BUS_ID_FORMAT, req_payload[:BUS_ID_SIZE])
+        size_to_read, = struct.unpack(UART_RW_SIZE_FORMAT, req_payload[BUS_ID_SIZE:BUS_ID_SIZE + UART_RW_SIZE_SIZE])
+
+        return bus_id, size_to_read

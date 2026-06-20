@@ -319,7 +319,7 @@ void* i2c_hook_open(const char* name, int flags, ...)
 			int clientSock = proteus_connect();
 			if (clientSock >= 0)
 			{
-				/* Common */
+				// Common
 				device->base.fd = fd;
 				device->base.type = DEV_TYPE_I2C_E;
 
@@ -335,7 +335,7 @@ void* i2c_hook_open(const char* name, int flags, ...)
 
 				device->base.next = NULL;
 
-				/* I2C Specific */
+				// I2C Specific
 				device->enable10bitsAddress = 0x00;
 				device->slaveAddress = 0x00;
 			}

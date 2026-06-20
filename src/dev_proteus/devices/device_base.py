@@ -47,3 +47,15 @@ class SPIDeviceBase(DeviceBase):
     def transfer(self, transfer: SpiTransfer) -> bytes:
         """ Handle SPI transfer """
         pass
+
+class UARTDeviceBase(DeviceBase):
+    """ Base class for UART devices """
+
+    def __init__(self, address: int, name: str, config: Optional[Dict] = None):
+        super().__init__(address, name, config)
+    
+    @abstractmethod
+    def get_available_bytes(self) -> int:
+        """ Return the count of available bytes to read """
+        pass
+        

@@ -62,7 +62,7 @@ class EmulatorServer:
             # Register devices on bus
             for device_item in bus_item.get('devices', []):
 
-                if bus.type == DevType.I2C:
+                if bus.type == DevType.I2C or bus.type == DevType.UART:
                     device_address = device_item.get('address')
                 elif bus.type == DevType.SPI:
                     device_address = device_item.get('cs')
@@ -305,6 +305,69 @@ class EmulatorServer:
                         resp_payload = bus.transaction(context)
                     else:
                         status = ProteusStatus.DEVICE_NOT_FOUND
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+            
+            #####################################################
+            # UART
+            #####################################################
+            elif command == ProteusCommand.UART_SET_TERMIOS:
+                bus_id, termios = ProtocolMessage.decode_uart_set_termios(req_payload)
+
+                bus = self._find_by_type_and_id(DevType.UART, bus_id)
+                if bus:
+                    bus.termios = termios
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.UART_GET_TERMIOS:
+                bus = self._find_by_type_and_id(DevType.UART,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = ProtocolMessage.encode_uart_termios(bus.termios)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+            
+            elif command == ProteusCommand.UART_SET_MODEM:
+                bus_id, modem_status = ProtocolMessage.decode_uart_set_modem(req_payload)
+
+                bus = self._find_by_type_and_id(DevType.UART, bus_id)
+                if bus:
+                    bus.modem = modem_status
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+
+            elif command == ProteusCommand.UART_GET_MODEM:
+                bus = self._find_by_type_and_id(DevType.UART,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = ProtocolMessage.encode_uart_modem(bus.modem)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+            
+            elif command == ProteusCommand.UART_WRITE:
+                bus_id, data_to_write = ProtocolMessage.decode_uart_write(req_payload)
+                bus = self._find_by_type_and_id(DevType.UART, bus_id)
+                if bus:
+                    context = { "data_to_write": data_to_write }
+                    resp_payload = bus.transaction(context)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+            
+            elif command == ProteusCommand.UART_READ:
+                bus_id, size_to_read = ProtocolMessage.decode_uart_read(req_payload)
+                bus = self._find_by_type_and_id(DevType.UART, bus_id)
+                if bus:
+                    context = { "size_to_read": size_to_read }
+                    resp_payload = bus.transaction(context)
+                else:
+                    status = ProteusStatus.DEVICE_NOT_FOUND
+            
+            elif command == ProteusCommand.UART_GET_AVAILABLE_BYTES:
+                bus = self._find_by_type_and_id(DevType.UART,
+                                                ProtocolMessage.decode_bus_id(req_payload))
+                if bus:
+                    resp_payload = struct.pack("<I", bus.get_available_bytes())
                 else:
                     status = ProteusStatus.DEVICE_NOT_FOUND
 
