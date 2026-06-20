@@ -20,6 +20,8 @@
 #include <sys/stat.h>  // Required for file permission macros (e.g., S_IRUSR)
 #include <unistd.h>    // Required for close(), read(), and write()
 
+#include <sys/ioctl.h>  // Definition of TC* constants
+
 #include <dlfcn.h>
 #include <pthread.h>
 #include <errno.h>
@@ -80,12 +82,21 @@ static int fetch_all_devices();
 __attribute__((constructor))
 void init_hook_manager()
 {
-	// Set function pointers to original system functions
+	// Common functions
 	g_proteusCtx.real_open = (open_func)dlsym(RTLD_NEXT, "open");
 	g_proteusCtx.real_close = (close_func)dlsym(RTLD_NEXT, "close");
 	g_proteusCtx.real_read = (read_func)dlsym(RTLD_NEXT, "read");
 	g_proteusCtx.real_write = (write_func)dlsym(RTLD_NEXT, "write");
-	g_proteusCtx.real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");	
+	g_proteusCtx.real_ioctl = (ioctl_func)dlsym(RTLD_NEXT, "ioctl");
+
+	// TTY functions
+	g_proteusCtx.real_isatty = (isatty_func)dlsym(RTLD_NEXT, "isatty");
+	g_proteusCtx.real_tcgetattr = (tcgetattr_func)dlsym(RTLD_NEXT, "tcgetattr");
+	g_proteusCtx.real_tcsetattr = (tcsetattr_func)dlsym(RTLD_NEXT, "tcsetattr");
+
+	// Fortified functions
+	g_proteusCtx.real_read_chk = (__read_chk_func)dlsym(RTLD_NEXT, "__read_chk");
+	g_proteusCtx.real_write_chk = (__write_chk_func)dlsym(RTLD_NEXT, "__write_chk");
 
 	// Connect to server and get devices to hook
 	s_managerSock = proteus_connect();
@@ -289,7 +300,7 @@ static VirtualDevice* find_device_by_fd(int fd)
 }
 
 //=============================================================================
-// Common hook functions
+// 'open', 'close', 'read', 'writ' and 'ioctl' hook functions
 //=============================================================================
 
 int open(const char* name, int flags, ...)
@@ -367,7 +378,7 @@ ssize_t read(int fd, void* buf, size_t len)
 
 	VirtualDevice* device = find_device_by_fd(fd);
 	if (device != NULL)
-	{
+	{		
 		readResult = device->impl_read(device, buf, len);
 	}
 	else
@@ -418,4 +429,146 @@ int ioctl(int fd, unsigned long request, ...)
 	}
 
 	return ioctlResult;
+}
+
+//=============================================================================
+// TTY hook functions
+//=============================================================================
+
+int isatty(int fd)
+{
+	int isattyResult = 0;
+
+	VirtualDevice* device = find_device_by_fd(fd);
+	if (device != NULL)
+	{
+		isattyResult = device->type == DEV_TYPE_UART_E;	
+	}
+	else
+	{
+		// Pass through to original 'isatty'
+		isattyResult = g_proteusCtx.real_isatty(fd);
+	}
+
+	return isattyResult;
+}
+
+int tcgetattr(int fildes, struct termios *termios_p)
+{
+	int tcgetattrResult = -1;
+
+	VirtualDevice* device = find_device_by_fd(fildes);
+	if (device != NULL)
+	{
+		if (device->type == DEV_TYPE_UART_E)
+		{
+			// TCGETS Equivalent to tcgetattr(fd, argp)
+			tcgetattrResult = device->impl_ioctl(device, TCGETS, termios_p);			
+		}
+		else
+		{
+			errno = ENOTTY;
+		}
+	}
+	else
+	{
+		// Pass through to original 'tcgetattr'
+		tcgetattrResult = g_proteusCtx.real_tcgetattr(fildes, termios_p);
+	}
+
+	return tcgetattrResult;
+}
+
+int tcsetattr(int fd, int optional_actions, const struct termios *termios_p)
+{
+	int tcsetattrResult = -1;
+
+	VirtualDevice* device = find_device_by_fd(fd);
+	if (device != NULL)
+	{
+		if (device->type == DEV_TYPE_UART_E)
+		{
+			// Redirect to ioctl
+			tcsetattrResult = device->impl_ioctl(device, optional_actions, (void*)termios_p);
+		}
+		else
+		{
+			errno = ENOTTY;
+		}
+	}
+	else
+	{
+		// Pass through to original 'tcsetattr'
+		tcsetattrResult = g_proteusCtx.real_tcsetattr(fd, optional_actions, termios_p);
+	}
+
+	return tcsetattrResult;
+}
+
+//=============================================================================
+// Fortified hook functions
+//=============================================================================
+
+/*
+ * __read_chk - fortified version of read() used when _FORTIFY_SOURCE is enabled
+ * 
+ * Some clients are compiled with -D_FORTIFY_SOURCE=2/3,
+ * which replaces read() calls with __read_chk() for buffer overflow protection.
+ * 
+ * This hook intercepts __read_chk to handle it the same way as read().
+ */
+ssize_t __read_chk(int fd, void* buf, size_t len, size_t buf_len)
+{
+    PROTEUS_LOG("__read_chk() called: fd=%d, len=%zu, buf_len=%zu", fd, len, buf_len);
+    
+    /*
+     * __read_chk checks if len > buf_len and calls __chk_fail() on overflow.
+     * We handle it gracefully by limiting len to buffer size.
+     */
+    if (len > buf_len) {
+        PROTEUS_LOG("__read_chk: buffer overflow prevented! len=%zu > buf_len=%zu", 
+                   len, buf_len);
+        len = buf_len;
+    }
+    
+    VirtualDevice* device = find_device_by_fd(fd);
+    if (device != NULL) {
+        PROTEUS_LOG("found device for __read_chk: %s", device->name);
+        return device->impl_read(device, buf, len);
+    }
+    
+    PROTEUS_LOG("no device for __read_chk: fd=%d, calling original", fd);
+    
+    if (g_proteusCtx.real_read_chk) {
+        return g_proteusCtx.real_read_chk(fd, buf, len, buf_len);
+    }
+    
+    /* Fallback to regular read if original __read_chk is not available */
+    return g_proteusCtx.real_read(fd, buf, len);
+}
+
+/*
+ * __write_chk - fortified version of write() used with _FORTIFY_SOURCE
+ */
+ssize_t __write_chk(int fd, const void* buf, size_t len, size_t buf_len)
+{
+    PROTEUS_LOG("__write_chk() called: fd=%d, len=%zu, buf_len=%zu", fd, len, buf_len);
+    
+    if (len > buf_len) {
+        PROTEUS_LOG("__write_chk: buffer overflow prevented! len=%zu > buf_len=%zu", 
+                   len, buf_len);
+        len = buf_len;
+    }
+    
+    VirtualDevice* device = find_device_by_fd(fd);
+    if (device != NULL) {
+        PROTEUS_LOG("found device for __write_chk: %s", device->name);
+        return device->impl_write(device, buf, len);
+    }
+    
+    if (g_proteusCtx.real_write_chk) {
+        return g_proteusCtx.real_write_chk(fd, buf, len, buf_len);
+    }
+    
+    return g_proteusCtx.real_write(fd, buf, len);
 }

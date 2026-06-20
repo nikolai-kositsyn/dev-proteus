@@ -38,12 +38,18 @@ I2C_MULTI_CLIENT = i2c_multi_client_test
 SPI_CLIENT = spi_client_test
 SPI_MULTI_CLIENT = spi_multi_client_test
 
+# UART Clients
+UART_CLIENT = uart_client_test
+UART_MULTI_CLIENT = uart_multi_client_test
+
 ALL_CLIENTS = $(I2C_CLIENT) \
               $(I2C_EEPROM_CLIENT) \
               $(I2C_SMBUS_CLIENT) \
               $(I2C_MULTI_CLIENT) \
 			  $(SPI_CLIENT) \
-			  $(SPI_MULTI_CLIENT)
+			  $(SPI_MULTI_CLIENT) \
+			  $(UART_CLIENT) \
+			  $(UART_MULTI_CLIENT)
 
 .PHONY: all clean debug release help
 

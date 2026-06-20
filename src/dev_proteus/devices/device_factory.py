@@ -6,13 +6,14 @@ from dev_proteus.devices.i2c.i2c_custom_flow import I2cCustomFlow
 from dev_proteus.devices.i2c.i2c_eeprom import I2cEeprom
 from dev_proteus.devices.i2c.i2c_smbus import I2cSMBusDevice
 from dev_proteus.devices.spi.spi_echo import SpiEcho
+from dev_proteus.devices.uart.uart_echo import UartEcho
 
 
 def create_device(address: str,
                   device_class: str,
                   name: str,
                   config: Optional[Dict] = None) -> Optional[DeviceBase]:
-    """Factory function to create devices"""
+    """ Factory function to create devices """
 
     classes = {
         # I2C
@@ -24,6 +25,8 @@ def create_device(address: str,
         # SPI
         "spi-echo": SpiEcho,
 
+        # UART
+        "uart-echo": UartEcho,
     }
 
     if address.startswith("0x"):

@@ -175,6 +175,61 @@
           "name": "SPI Echo Device"
         }
       ]
+    },
+
+    {
+      "name": "/dev/ttyS0",
+      "config": {
+        "bitrate": 115200,
+        "data_bits": 8,
+        "parity": "none",
+        "stop_bits": 1,
+        "flow_control": "none"
+      },
+      "devices": [
+        {
+          "address": "0x00",
+          "class": "uart-echo",
+          "name": "UART Echo Device"
+        }
+      ]
+    },
+
+    {
+      "name": "/dev/ttyUSB1",
+      "config": {
+        "bitrate": 115200,
+        "data_bits": 8,
+        "parity": "none",
+        "stop_bits": 1,
+        "flow_control": "none"
+      },
+      "devices": [
+        {
+          "address": "0x00",
+          "class": "uart-echo",
+          "name": "UART Echo Device"
+        }
+      ]
+    },
+
+    {
+      "name": "/dev/ttyAMA1",
+      "config": {
+        "bitrate": 115200,
+        "data_bits": 8,
+        "parity": "none",
+        "stop_bits": 1,
+        "flow_control": "none"
+      },
+      "devices": [
+        {
+          "address": "0x00",
+          "class": "uart-echo",
+          "name": "UART Echo Device"
+        }
+      ]
     }
+
   ]
 }
